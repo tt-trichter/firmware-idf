@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS 
+       "main.c"
+       "src/server.c"
+       "src/wifi.c"
+       "src/camera.c"
+       "src/sensor.c"
+    INCLUDE_DIRS "include"
+    PRIV_REQUIRES 
+      esp_wifi
+      nvs_flash
+      esp_timer
+      esp-tls
+      nvs_flash
+      esp_netif
+      esp_http_server
+      esp_driver_pcnt
+)

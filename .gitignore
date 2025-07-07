@@ -1,0 +1,8 @@
+/.vscode
+/.embuild
+/target
+/Cargo.lock
+sdkconfig
+.cache
+build
+.direnv
