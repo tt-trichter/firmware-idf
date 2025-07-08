@@ -14,5 +14,6 @@ idf_component_register(
       nvs_flash
       esp_netif
       esp_http_server
+      esp_http_client
       esp_driver_pcnt
 )
