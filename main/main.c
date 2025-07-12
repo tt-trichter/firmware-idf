@@ -1,3 +1,5 @@
+#include "display.h"
+#include "esp_camera.h"
 #include "esp_event.h"
 #include "esp_http_client.h"
 #include "esp_http_server.h"
@@ -49,34 +51,39 @@ static void on_wifi_disconnect(void *arg, esp_event_base_t event_base,
 void app_main(void) {
 
   ESP_ERROR_CHECK(nvs_flash_init());
-  ESP_ERROR_CHECK(camera_init_module());
-  ESP_ERROR_CHECK(wifi_init_sta());
+  // ESP_ERROR_CHECK(camera_init_module());
+  // ESP_ERROR_CHECK(wifi_init_sta());
   ESP_ERROR_CHECK(sensor_init(GPIO_NUM_4));
 
   // static httpd_handle_t server = NULL;
 
   /* register our start/stop callbacks */
-  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                             &on_wifi_connect, &server));
-  ESP_ERROR_CHECK(esp_event_handler_register(
-      WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, &server));
+  // ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+  //                                            &on_wifi_connect, 0));
+  // ESP_ERROR_CHECK(esp_event_handler_register(
+  //     WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, 0));
 
   // server = server_start();
+  //
+  lv_disp_t *disp = display_init();
+
+  // display_write_await_session(disp);
 
   SessionResult session_result;
   while (true) {
     ESP_LOGI(TAG, "Measuring session...");
     sensor_measure_session(&session_result);
     ESP_LOGI(TAG, "Done measuring session, taking image...");
+    display_write_result(disp, &session_result);
 
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-      ESP_LOGE(TAG, "Camera capture failed");
-    } else {
-      ESP_LOGI(TAG, "Image taken")
-    }
+    // camera_fb_t *fb = esp_camera_fb_get();
+    // if (!fb) {
+    //   ESP_LOGE(TAG, "Camera capture failed");
+    // } else {
+    //   ESP_LOGI(TAG, "Image taken");
+    // }
 
-    ESP_LOGI("Would now send http request...");
+    ESP_LOGI(TAG, "Would now send http request...");
 
     ESP_LOGI(TAG, "Sleeping 1 second...");
     sleep(1);

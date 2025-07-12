@@ -1,10 +1,12 @@
 idf_component_register(
     SRCS 
+      # "bin/scanner.c"
        "main.c"
        "src/server.c"
        "src/wifi.c"
        "src/camera.c"
        "src/sensor.c"
+       "src/display.c"
     INCLUDE_DIRS "include"
     PRIV_REQUIRES 
       esp_wifi
