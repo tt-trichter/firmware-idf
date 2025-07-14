@@ -1,3 +1,30 @@
+menu "Trichter Configuration"
+    config ENABLE_CAMERA
+        bool "Enable Camera"
+        default y
+        help
+            Enable camera support in the project.
+
+    config ENABLE_WIFI
+        bool "Enable WiFi"
+        default y
+        help
+            Enable WiFi support in the project.
+
+    config ENABLE_SENSOR
+        bool "Enable Sensor"
+        default y
+        help
+            Enable sensor support in the project.
+
+    config ENABLE_DISPLAY
+        bool "Enable Display"
+        default y
+        help
+            Enable display support in the project.
+        
+endmenu
+
 menu "WIFI Configuration"
 
     config WIFI_SSID
@@ -29,10 +56,6 @@ menu "Sensor Configuration"
         int "Startup window length (ms)"
         default 200
 
-    config SENSOR_STARTUP_WINDOW_MS
-        int "Startup window length (ms)"
-        default 100
-
     config SENSOR_IDLE_TIMEOUT_MS
         int "Idle timeout length (ms)"
         default 500
@@ -40,5 +63,12 @@ menu "Sensor Configuration"
     config SENSOR_GLITCH_NS
         int "PCNT glitch filter threshold (ns)"
         default 1000
+
+    config SENSOR_ENABLE_SIMULATION
+        bool "Enable sensor simulation for testing"
+        default n
+        help
+            Enable simulation mode for testing without actual sensor hardware.
+            When enabled, test scenarios will be used instead of real sensor measurements.
 
 endmenu

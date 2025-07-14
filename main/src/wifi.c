@@ -10,33 +10,42 @@
 static const char *TAG = "wifi";
 
 /* these were your original credentials; adjust here: */
-#define WIFI_SSID       CONFIG_WIFI_SSID
-#define WIFI_PASS       CONFIG_WIFI_PASSWORD
-#define MAXIMUM_RETRY   CONFIG_WIFI_MAXIMUM_RETRY
+#define WIFI_SSID CONFIG_WIFI_SSID
+#define WIFI_PASS CONFIG_WIFI_PASSWORD
+#define MAXIMUM_RETRY CONFIG_WIFI_MAXIMUM_RETRY
 
 static EventGroupHandle_t s_wifi_event_group;
-enum {
+enum
+{
     WIFI_CONNECTED_BIT = BIT0,
-    WIFI_FAIL_BIT      = BIT1
+    WIFI_FAIL_BIT = BIT1
 };
 static int s_retry_num;
 
-static void event_handler(void* arg, esp_event_base_t event_base,
-                          int32_t event_id, void* event_data)
+static void event_handler(void *arg, esp_event_base_t event_base,
+                          int32_t event_id, void *event_data)
 {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
+    {
         esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < MAXIMUM_RETRY) {
+    }
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
+    {
+        if (s_retry_num < MAXIMUM_RETRY)
+        {
             esp_wifi_connect();
             s_retry_num++;
             ESP_LOGI(TAG, "retry to connect to the AP");
-        } else {
+        }
+        else
+        {
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
         }
         ESP_LOGI(TAG, "connect to the AP fail");
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = event_data;
+    }
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+    {
+        ip_event_got_ip_t *event = event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -45,6 +54,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 
 esp_err_t wifi_init_sta(void)
 {
+#ifdef CONFIG_ENABLE_WIFI
     s_wifi_event_group = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -53,13 +63,13 @@ esp_err_t wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT,
-                                              ESP_EVENT_ANY_ID,
-                                              &event_handler,
-                                              NULL));
+                                               ESP_EVENT_ANY_ID,
+                                               &event_handler,
+                                               NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,
-                                              IP_EVENT_STA_GOT_IP,
-                                              &event_handler,
-                                              NULL));
+                                               IP_EVENT_STA_GOT_IP,
+                                               &event_handler,
+                                               NULL));
 
     wifi_config_t wifi_config = {
         .sta = {
@@ -79,4 +89,10 @@ esp_err_t wifi_init_sta(void)
                                            pdFALSE, pdFALSE,
                                            portMAX_DELAY);
     return (bits & WIFI_CONNECTED_BIT) ? ESP_OK : ESP_FAIL;
+#else
+    {
+        ESP_LOGW(TAG, "WiFi module is disabled in configuration");
+        return ESP_OK;
+    }
+#endif
 }

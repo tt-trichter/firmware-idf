@@ -21,71 +21,133 @@
 #include "server.h"
 #include "soc/gpio_num.h"
 #include "wifi.h"
+#include "http_client.h"
 
 static const char *TAG = "app_main";
 
 #define MAX_HTTP_RECV_BUFFER 512
 #define MAX_HTTP_OUTPUT_BUFFER 2048
 
-static void on_wifi_connect(void *arg, esp_event_base_t event_base,
-                            int32_t event_id, void *event_data) {
-  ESP_LOGI(TAG, "Wi-Fi connected");
-
-  // httpd_handle_t *server = (httpd_handle_t *)arg;
-  // if (*server == NULL) {
-  //   *server = server_start();
-  // }
-}
-
-static void on_wifi_disconnect(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data) {
-  ESP_LOGI(TAG, "Wi-Fi lost");
-
-  // httpd_handle_t *server = arg;
-  // if (*server) {
-  //   server_stop(*server);
-  //   *server = NULL;
-  // }
-}
-
-void app_main(void) {
+static esp_err_t initialize_system(void)
+{
+  ESP_LOGI(TAG, "Initializing system components...");
 
   ESP_ERROR_CHECK(nvs_flash_init());
-  // ESP_ERROR_CHECK(camera_init_module());
-  // ESP_ERROR_CHECK(wifi_init_sta());
+  ESP_ERROR_CHECK(camera_init_module());
+  ESP_ERROR_CHECK(wifi_init_sta());
   ESP_ERROR_CHECK(sensor_init(GPIO_NUM_4));
+  ESP_ERROR_CHECK(http_client_init());
 
-  // static httpd_handle_t server = NULL;
+  ESP_LOGI(TAG, "System initialization complete");
+  return ESP_OK;
+}
 
-  /* register our start/stop callbacks */
-  // ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-  //                                            &on_wifi_connect, 0));
-  // ESP_ERROR_CHECK(esp_event_handler_register(
-  //     WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, 0));
+static esp_err_t submit_session_to_server(const SessionResult *session_result)
+{
+  if (!session_result)
+  {
+    ESP_LOGE(TAG, "Invalid session result");
+    return ESP_ERR_INVALID_ARG;
+  }
 
-  // server = server_start();
-  //
+  if (!session_result->image_fb)
+  {
+    ESP_LOGW(TAG, "No image available for session, skipping server submission");
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  session_data_t session_data = {
+      .rate = session_result->rate_lpm,
+      .duration = session_result->duration_us / 1e6f,
+      .volume = session_result->volume_l,
+      .image_fb = session_result->image_fb};
+
+  ESP_LOGI(TAG, "Submitting session to server: Rate=%.2f L/min, Duration=%.2fs, Volume=%.2f L",
+           session_data.rate, session_data.duration, session_data.volume);
+
+  esp_err_t err = http_client_submit_session(&session_data, NULL, NULL);
+
+  if (err == ESP_OK)
+  {
+    ESP_LOGI(TAG, "Session submitted successfully to server");
+  }
+  else
+  {
+    ESP_LOGE(TAG, "Failed to submit session to server: %s", esp_err_to_name(err));
+  }
+
+  return err;
+}
+
+static void log_session_result(const SessionResult *session_result)
+{
+  ESP_LOGI(TAG, "Session complete - Duration: %.2fs, Rate: %.2f L/min, Volume: %.2f L",
+           session_result->duration_us / 1e6f,
+           session_result->rate_lpm, session_result->volume_l);
+
+  if (session_result->image_fb)
+  {
+    ESP_LOGI(TAG, "Image captured during session: %dx%d, %zu bytes",
+             session_result->image_fb->width,
+             session_result->image_fb->height,
+             session_result->image_fb->len);
+  }
+  else
+  {
+    ESP_LOGW(TAG, "No image captured during session");
+  }
+}
+
+static void process_session_result(SessionResult *session_result)
+{
+  log_session_result(session_result);
+
+  esp_err_t submit_err = submit_session_to_server(session_result);
+  if (submit_err != ESP_OK)
+  {
+    ESP_LOGW(TAG, "Failed to submit session to server, continuing...");
+  }
+
+  sensor_cleanup_session_result(session_result);
+}
+
+static esp_err_t run_measurement_session(SessionResult *session_result)
+{
+  ESP_LOGI(TAG, "Measuring session...");
+
+  esp_err_t err = sensor_measure_session(session_result);
+  if (err != ESP_OK)
+  {
+    ESP_LOGE(TAG, "Session measurement failed: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  process_session_result(session_result);
+
+  return ESP_OK;
+}
+
+void app_main(void)
+{
+  ESP_ERROR_CHECK(initialize_system());
+
   lv_disp_t *disp = display_init();
-
-  // display_write_await_session(disp);
-
   SessionResult session_result;
-  while (true) {
-    ESP_LOGI(TAG, "Measuring session...");
-    sensor_measure_session(&session_result);
-    ESP_LOGI(TAG, "Done measuring session, taking image...");
+
+  while (true)
+  {
+  display_write_await_session(disp);
+    esp_err_t err;
+    err = run_measurement_session(&session_result);
+    if (err != ESP_OK)
+    {
+      ESP_LOGE(TAG, "Measurement session failed: %s", esp_err_to_name(err));
+      sleep(1);
+      continue;
+    }
+
     display_write_result(disp, &session_result);
-
-    // camera_fb_t *fb = esp_camera_fb_get();
-    // if (!fb) {
-    //   ESP_LOGE(TAG, "Camera capture failed");
-    // } else {
-    //   ESP_LOGI(TAG, "Image taken");
-    // }
-
-    ESP_LOGI(TAG, "Would now send http request...");
-
-    ESP_LOGI(TAG, "Sleeping 1 second...");
-    sleep(1);
+    ESP_LOGI(TAG, "Waiting one second before next session...");
+    sleep(5);
   }
 }

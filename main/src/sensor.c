@@ -1,4 +1,5 @@
 #include "sensor.h"
+#include "camera.h"
 #include "driver/gpio.h"
 #include "driver/pulse_cnt.h"
 #include "esp_log.h"
@@ -18,7 +19,8 @@ static volatile uint64_t s_first_ts = 0;
 
 #define PULSES_PER_LITER 6.6f
 
-static void IRAM_ATTR gpio_first_isr(void *arg) {
+static void IRAM_ATTR gpio_first_isr(void *arg)
+{
   BaseType_t hpw = pdFALSE;
   s_first_ts = esp_timer_get_time();
   xSemaphoreGiveFromISR(s_first_sem, &hpw);
@@ -27,17 +29,20 @@ static void IRAM_ATTR gpio_first_isr(void *arg) {
     portYIELD_FROM_ISR();
 }
 
-static void IRAM_ATTR idle_timer_cb(void *arg) {
+static void IRAM_ATTR idle_timer_cb(void *arg)
+{
   BaseType_t hpw = pdFALSE;
   xSemaphoreGiveFromISR(s_idle_sem, &hpw);
   if (hpw)
     portYIELD_FROM_ISR();
 }
 
-esp_err_t sensor_init(gpio_num_t pulse_gpio) {
+esp_err_t sensor_init(gpio_num_t pulse_gpio)
+{
   s_first_sem = xSemaphoreCreateBinary();
   s_idle_sem = xSemaphoreCreateBinary();
-  if (!s_first_sem || !s_idle_sem) {
+  if (!s_first_sem || !s_idle_sem)
+  {
     ESP_LOGE(TAG, "Failed to create semaphores");
     return ESP_ERR_NO_MEM;
   }
@@ -80,14 +85,16 @@ esp_err_t sensor_init(gpio_num_t pulse_gpio) {
   return ESP_OK;
 }
 
-esp_err_t sensor_measure_session(SessionResult *out_result) {
+esp_err_t sensor_measure_session(SessionResult *out_result)
+{
   xSemaphoreTake(s_first_sem, 0);
   xSemaphoreTake(s_idle_sem, 0);
 
   ESP_ERROR_CHECK(pcnt_unit_clear_count(s_pcnt_unit));
   ESP_ERROR_CHECK(pcnt_unit_start(s_pcnt_unit));
 
-  if (xSemaphoreTake(s_first_sem, portMAX_DELAY) != pdTRUE) {
+  if (xSemaphoreTake(s_first_sem, portMAX_DELAY) != pdTRUE)
+  {
     ESP_LOGE(TAG, "Timeout waiting first pulse");
     return ESP_FAIL;
   }
@@ -96,12 +103,14 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
       t_start + (uint64_t)CONFIG_SENSOR_STARTUP_WINDOW_MS * 1000ULL;
 
   int startup_count = 1;
-  while (esp_timer_get_time() < startup_deadline) {
+  while (esp_timer_get_time() < startup_deadline)
+  {
     int cnt;
     ESP_ERROR_CHECK(pcnt_unit_get_count(s_pcnt_unit, &cnt));
     startup_count = cnt;
   }
-  if (startup_count < CONFIG_SENSOR_STARTUP_PULSES) {
+  if (startup_count < CONFIG_SENSOR_STARTUP_PULSES)
+  {
     ESP_LOGW(TAG, "Startup window %dms: only %d pulses",
              CONFIG_SENSOR_STARTUP_WINDOW_MS, startup_count);
     ESP_ERROR_CHECK(pcnt_unit_stop(s_pcnt_unit));
@@ -111,17 +120,28 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
   esp_timer_start_once(s_idle_timer, CONFIG_SENSOR_IDLE_TIMEOUT_MS * 1000ULL);
   int last_count = startup_count;
 
-  while (true) {
+  // Capture image after startup phase
+  ESP_LOGI(TAG, "Capturing image during session...");
+  camera_fb_t *session_image = camera_capture_frame();
+  if (!session_image)
+  {
+    ESP_LOGW(TAG, "Failed to capture image during session");
+  }
+
+  while (true)
+  {
     int cnt;
     ESP_ERROR_CHECK(pcnt_unit_get_count(s_pcnt_unit, &cnt));
     ESP_LOGI(TAG, "COUNT: %d, LAST_COUNT: %d", cnt, last_count);
-    if (cnt != last_count) {
+    if (cnt != last_count)
+    {
       last_count = cnt;
       esp_timer_stop(s_idle_timer);
       esp_timer_start_once(s_idle_timer,
                            CONFIG_SENSOR_IDLE_TIMEOUT_MS * 1000ULL);
     }
-    if (xSemaphoreTake(s_idle_sem, 0) == pdTRUE) {
+    if (xSemaphoreTake(s_idle_sem, 0) == pdTRUE)
+    {
       break;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -140,8 +160,20 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
   out_result->duration_us = dur_us;
   out_result->rate_lpm = rate_lpm;
   out_result->volume_l = volume_l;
+  out_result->image_fb = session_image;
 
-  ESP_LOGI(TAG, "Result: %d pulses, %.2fs, %.2f L/min, %.2f L", total_pulses,
-           secs, rate_lpm, volume_l);
+  ESP_LOGI(TAG, "Result: %d pulses, %.2fs, %.2f L/min, %.2f L, image: %s",
+           total_pulses, secs, rate_lpm, volume_l,
+           session_image ? "captured" : "failed");
   return ESP_OK;
+}
+
+void sensor_cleanup_session_result(SessionResult *result)
+{
+  if (result && result->image_fb)
+  {
+    esp_camera_fb_return(result->image_fb);
+    result->image_fb = NULL;
+    ESP_LOGD(TAG, "Session result image buffer released");
+  }
 }

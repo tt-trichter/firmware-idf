@@ -1,4 +1,4 @@
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -9,17 +9,17 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "sensor.h"
+#include "img_icon.h"
 #include <stdio.h>
 
 #include "esp_lcd_panel_vendor.h"
 
 static const char *TAG = "display";
 
-#define I2C_HOST 0
-
+#define I2C_MASTER_NUM I2C_NUM_0
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ (400 * 1000)
-#define EXAMPLE_PIN_NUM_SDA GPIO_NUM_11
-#define EXAMPLE_PIN_NUM_SCL GPIO_NUM_12
+#define EXAMPLE_PIN_NUM_SDA GPIO_NUM_5
+#define EXAMPLE_PIN_NUM_SCL GPIO_NUM_6
 #define EXAMPLE_PIN_NUM_RST -1
 #define EXAMPLE_I2C_HW_ADDR 0x3C
 
@@ -29,29 +29,33 @@ static const char *TAG = "display";
 #define EXAMPLE_LCD_CMD_BITS 8
 #define EXAMPLE_LCD_PARAM_BITS 8
 
-lv_disp_t *display_init(void) {
-  ESP_LOGI(TAG, "Initialize I2C bus");
-  i2c_config_t i2c_conf = {
-      .mode = I2C_MODE_MASTER,
+static i2c_master_bus_handle_t i2c_bus_handle = NULL;
+
+lv_disp_t *display_init(void)
+{
+#ifdef CONFIG_ENABLE_DISPLAY
+  ESP_LOGI(TAG, "Initialize I2C master bus");
+  i2c_master_bus_config_t bus_config = {
+      .i2c_port = I2C_MASTER_NUM,
       .sda_io_num = EXAMPLE_PIN_NUM_SDA,
       .scl_io_num = EXAMPLE_PIN_NUM_SCL,
-      .sda_pullup_en = GPIO_PULLUP_ENABLE,
-      .scl_pullup_en = GPIO_PULLUP_ENABLE,
-      .master.clk_speed = EXAMPLE_LCD_PIXEL_CLOCK_HZ,
+      .clk_source = I2C_CLK_SRC_DEFAULT,
+      .glitch_ignore_cnt = 7,
+      .flags.enable_internal_pullup = true,
   };
-  ESP_ERROR_CHECK(i2c_param_config(I2C_HOST, &i2c_conf));
-  ESP_ERROR_CHECK(i2c_driver_install(I2C_HOST, I2C_MODE_MASTER, 0, 0, 0));
+  ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &i2c_bus_handle));
 
   ESP_LOGI(TAG, "Install panel IO");
   esp_lcd_panel_io_handle_t io_handle = NULL;
   esp_lcd_panel_io_i2c_config_t io_config = {
       .dev_addr = EXAMPLE_I2C_HW_ADDR,
+      .scl_speed_hz = EXAMPLE_LCD_PIXEL_CLOCK_HZ,
       .control_phase_bytes = 1,               // According to SSD1306 datasheet
       .lcd_cmd_bits = EXAMPLE_LCD_CMD_BITS,   // According to SSD1306 datasheet
       .lcd_param_bits = EXAMPLE_LCD_CMD_BITS, // According to SSD1306 datasheet
       .dc_bit_offset = 6,                     // According to SSD1306 datasheet
   };
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(I2C_HOST, &io_config, &io_handle));
+  ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(i2c_bus_handle, &io_config, &io_handle));
 
   ESP_LOGI(TAG, "Install SSD1306 panel driver");
   esp_lcd_panel_handle_t panel_handle = NULL;
@@ -96,43 +100,75 @@ lv_disp_t *display_init(void) {
   ESP_LOGI(TAG, "Display LVGL Scroll Text");
 
   return disp;
+#else
+  {
+    ESP_LOGW(TAG, "Display module is disabled in configuration");
+    return NULL;
+  }
+#endif
 }
 
-void display_write_await_session(lv_disp_t *disp) {
+void display_write_await_session(lv_disp_t *disp)
+{
+#ifdef CONFIG_ENABLE_DISPLAY
   lv_obj_t *scr = lv_disp_get_scr_act(disp);
+  lv_obj_clean(scr);
+
   lv_obj_t *label = lv_label_create(scr);
+  lv_obj_t *img = lv_img_create(scr);
+
+  lv_img_set_src(img, &img_icon);
+  lv_obj_align(img, LV_ALIGN_TOP_MID, 0, -5);
+
+  ESP_LOGI(TAG, "Icon displayed on screen");
+
   lv_label_set_long_mode(label,
                          LV_LABEL_LONG_SCROLL_CIRCULAR); /* Circular scroll */
-  lv_label_set_text(label, "Waiting for Session to finish...");
-  /* Size of the screen (if you use rotation 90 or 270, please set
-   * disp->driver->ver_res) */
+  lv_label_set_text(label, "Waiting for Session...");
   lv_obj_set_width(label, disp->driver->hor_res);
-  lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, 0);
+#else
+  ESP_LOGW(TAG, "Display module is disabled in configuration, skipping display write");
+#endif
 }
 
-void display_write_result(lv_disp_t *disp, const SessionResult *res) {
+void display_write_result(lv_disp_t *disp, const SessionResult *res)
+{
+#ifdef CONFIG_ENABLE_DISPLAY
   lv_obj_t *scr = lv_disp_get_scr_act(disp);
+  lv_obj_clean(scr);
 
-  /*–– Duration label ––*/
   lv_obj_t *lbl_dur = lv_label_create(scr);
-    ESP_LOGI(TAG, "Duration: %.2f", res->duration_us / 1e6f);
-  lv_label_set_text_fmt(lbl_dur, "D: %.3f s", res->duration_us / 1e6f);
+  lv_label_set_text_fmt(lbl_dur, "%.2f L in %.2f s!", res->volume_l, res->duration_us / 1e6f);
   lv_obj_set_width(lbl_dur, disp->driver->hor_res);
-  lv_obj_align(lbl_dur, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_align(lbl_dur, LV_ALIGN_CENTER, 0, -10);
 
-  /*–– Flow-rate label ––*/
   lv_obj_t *lbl_rate = lv_label_create(scr);
   lv_label_set_long_mode(lbl_rate, LV_LABEL_LONG_WRAP);
-    ESP_LOGI(TAG, "Rate: %.2f", res->rate_lpm);
-  lv_label_set_text_fmt(lbl_rate, "R: %.2f L/min", res->rate_lpm);
+  ESP_LOGI(TAG, "Rate: %.2f", res->rate_lpm);
+  lv_label_set_text_fmt(lbl_rate, "-> %.2f L/min", res->rate_lpm);
   lv_obj_set_width(lbl_rate, disp->driver->hor_res);
-  lv_obj_align(lbl_rate, LV_ALIGN_TOP_MID, 0, 20);
+  lv_obj_align(lbl_rate, LV_ALIGN_CENTER, 0, 10);
 
-  /*–– Volume label ––*/
-  lv_obj_t *lbl_vol = lv_label_create(scr);
-  lv_label_set_long_mode(lbl_vol, LV_LABEL_LONG_WRAP);
-    ESP_LOGI(TAG, "Voli,e: %.2f", res->volume_l);
-  lv_label_set_text_fmt(lbl_vol, "V: %.2f L", res->volume_l);
-  lv_obj_set_width(lbl_vol, disp->driver->hor_res);
-  lv_obj_align(lbl_vol, LV_ALIGN_TOP_MID, 0, 40);
+#else
+  ESP_LOGW(TAG, "Display module is disabled in configuration, skipping display write");
+#endif
+}
+
+void display_show_icon(lv_disp_t *disp)
+{
+#ifdef CONFIG_ENABLE_DISPLAY
+#else
+  ESP_LOGW(TAG, "Display module is disabled in configuration, skipping icon display");
+#endif
+}
+
+void display_cleanup(void)
+{
+  if (i2c_bus_handle != NULL)
+  {
+    ESP_LOGI(TAG, "Deinitialize I2C master bus");
+    ESP_ERROR_CHECK(i2c_del_master_bus(i2c_bus_handle));
+    i2c_bus_handle = NULL;
+  }
 }
