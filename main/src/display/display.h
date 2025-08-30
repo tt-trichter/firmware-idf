@@ -1,5 +1,7 @@
+#pragma once
+
 #include "hal/lv_hal_disp.h"
-#include "sensor.h"
+#include "sensor/sensor.h"
 
 lv_disp_t *display_init(void);
 

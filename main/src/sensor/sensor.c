@@ -1,5 +1,5 @@
-#include "sensor.h"
-#include "camera.h"
+#include "sensor/sensor.h"
+#include "camera/camera.h"
 #include "driver/gpio.h"
 #include "driver/pulse_cnt.h"
 #include "esp_log.h"
@@ -120,7 +120,6 @@ esp_err_t sensor_measure_session(SessionResult *out_result)
   esp_timer_start_once(s_idle_timer, CONFIG_SENSOR_IDLE_TIMEOUT_MS * 1000ULL);
   int last_count = startup_count;
 
-  // Capture image after startup phase
   ESP_LOGI(TAG, "Capturing image during session...");
   camera_fb_t *session_image = camera_capture_frame();
   if (!session_image)

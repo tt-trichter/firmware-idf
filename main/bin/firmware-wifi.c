@@ -1,27 +1,19 @@
-#include "display.h"
+#include "camera/camera.h"
+#include "display/display.h"
+#include "sensor/sensor.h"
+#include "wifi/http_client.h"
+#include "wifi/wifi.h"
+
 #include "esp_camera.h"
-#include "esp_event.h"
-#include "esp_http_client.h"
-#include "esp_http_server.h"
 #include "esp_log.h"
-#include "esp_netif_types.h"
-#include "esp_wifi_types_generic.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "soc/gpio_num.h"
 #include <esp_wifi.h>
 #include <nvs_flash.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/param.h>
 #include <unistd.h>
-
-#include "camera.h"
-#include "sensor.h"
-#include "server.h"
-#include "soc/gpio_num.h"
-#include "wifi.h"
-#include "http_client.h"
 
 static const char *TAG = "app_main";
 

@@ -1,0 +1,16 @@
+CompileFlags:
+  Remove: [
+    "-mlongcalls",
+    "-fno-tree-switch-conversion",
+    "-fzero-init-padding-bits=all",
+    "-fstrict-volatile-bitfields",
+    "-mdisable-hardware-atomics",
+    "-fno-shrink-wrap",
+    "-fno-malloc-dce"
+  ]
+
+  Add: [
+    "-xc",
+    "-std=gnu11",
+    "--driver-mode=gcc"
+  ]

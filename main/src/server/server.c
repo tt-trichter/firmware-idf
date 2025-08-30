@@ -1,7 +1,7 @@
-#include "server.h"
+#include "server/server.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
-#include "camera.h"
+#include "camera/camera.h"
 
 static const char *TAG = "server";
 

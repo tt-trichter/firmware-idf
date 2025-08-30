@@ -8,8 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
-#include "sensor.h"
-#include "img_icon.h"
+#include "sensor/sensor.h"
+#include "display/img_icon.h"
 #include <stdio.h>
 
 #include "esp_lcd_panel_vendor.h"

@@ -1,23 +1,20 @@
+file(GLOB_RECURSE SRC_FILES "src/*.c")
+
 idf_component_register(
     SRCS 
-      # "bin/scanner.c"
-       "main.c"
-       "src/server.c"
-       "src/wifi.c"
-       "src/camera.c"
-       "src/sensor.c"
-       "src/display.c"
-       "src/http_client.c"
-    INCLUDE_DIRS "include"
+       "bin/firmware-ble.c"
+       ${SRC_FILES}
+    INCLUDE_DIRS "src"
     PRIV_REQUIRES 
-      esp_wifi
-      nvs_flash
-      esp_timer
+      bt 
       esp-tls
-      nvs_flash
-      esp_netif
-      esp_http_server
-      esp_http_client
+      esp_driver_gpio
       esp_driver_pcnt
+      esp_http_client
+      esp_http_server
+      esp_netif
+      esp_timer
+      esp_wifi
       json
+      nvs_flash
 )
