@@ -1,3 +1,4 @@
+#include "display/img_icon.h"
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_lcd_panel_io.h"
@@ -9,7 +10,7 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "sensor/sensor.h"
-#include "display/img_icon.h"
+#include "trichter_error.h"
 #include <stdio.h>
 
 #include "esp_lcd_panel_vendor.h"
@@ -31,10 +32,9 @@ static const char *TAG = "display";
 
 static i2c_master_bus_handle_t i2c_bus_handle = NULL;
 
-lv_disp_t *display_init(void)
-{
+lv_disp_t *display_init(void) {
 #ifdef CONFIG_ENABLE_DISPLAY
-  ESP_LOGI(TAG, "Initialize I2C master bus");
+  TRICHTER_LOGI(TAG, "Initialize I2C master bus");
   i2c_master_bus_config_t bus_config = {
       .i2c_port = I2C_MASTER_NUM,
       .sda_io_num = EXAMPLE_PIN_NUM_SDA,
@@ -43,9 +43,14 @@ lv_disp_t *display_init(void)
       .glitch_ignore_cnt = 7,
       .flags.enable_internal_pullup = true,
   };
-  ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &i2c_bus_handle));
+  esp_err_t err = i2c_new_master_bus(&bus_config, &i2c_bus_handle);
+  if (err != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err,
+                       "Failed to initialize I2C master bus");
+    return NULL;
+  }
 
-  ESP_LOGI(TAG, "Install panel IO");
+  TRICHTER_LOGI(TAG, "Install panel IO");
   esp_lcd_panel_io_handle_t io_handle = NULL;
   esp_lcd_panel_io_i2c_config_t io_config = {
       .dev_addr = EXAMPLE_I2C_HW_ADDR,
@@ -55,9 +60,13 @@ lv_disp_t *display_init(void)
       .lcd_param_bits = EXAMPLE_LCD_CMD_BITS, // According to SSD1306 datasheet
       .dc_bit_offset = 6,                     // According to SSD1306 datasheet
   };
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(i2c_bus_handle, &io_config, &io_handle));
+  err = esp_lcd_new_panel_io_i2c(i2c_bus_handle, &io_config, &io_handle);
+  if (err != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err, "Failed to create panel IO");
+    return NULL;
+  }
 
-  ESP_LOGI(TAG, "Install SSD1306 panel driver");
+  TRICHTER_LOGI(TAG, "Install SSD1306 panel driver");
   esp_lcd_panel_handle_t panel_handle = NULL;
   esp_lcd_panel_dev_config_t panel_config = {
       .bits_per_pixel = 1,
@@ -68,14 +77,32 @@ lv_disp_t *display_init(void)
   //     .height = EXAMPLE_LCD_V_RES,
   // };
   // panel_config.vendor_config = &ssd1306_config;
-  ESP_ERROR_CHECK(
-      esp_lcd_new_panel_ssd1306(io_handle, &panel_config, &panel_handle));
+  err = esp_lcd_new_panel_ssd1306(io_handle, &panel_config, &panel_handle);
+  if (err != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err,
+                       "Failed to create SSD1306 panel");
+    return NULL;
+  }
 
-  ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-  ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+  err = esp_lcd_panel_reset(panel_handle);
+  if (err != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err, "Failed to reset panel");
+    return NULL;
+  }
 
-  ESP_LOGI(TAG, "Initialize LVGL");
+  err = esp_lcd_panel_init(panel_handle);
+  if (err != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err, "Failed to initialize panel");
+    return NULL;
+  }
+
+  err = esp_lcd_panel_disp_on_off(panel_handle, true);
+  if (err != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err, "Failed to turn on display");
+    return NULL;
+  }
+
+  TRICHTER_LOGI(TAG, "Initialize LVGL");
   const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
   lvgl_port_init(&lvgl_cfg);
 
@@ -93,24 +120,28 @@ lv_disp_t *display_init(void)
                                                 .mirror_y = false,
                                             }};
   lv_disp_t *disp = lvgl_port_add_disp(&disp_cfg);
+  TRICHTER_CHECK(disp != NULL, TRICHTER_ERR_DISPLAY,
+                 "Failed to add LVGL display");
 
   /* Rotation of the screen */
   lv_disp_set_rotation(disp, LV_DISP_ROT_NONE);
 
-  ESP_LOGI(TAG, "Display LVGL Scroll Text");
+  TRICHTER_LOGI(TAG, "Display LVGL initialized successfully");
 
   return disp;
 #else
-  {
-    ESP_LOGW(TAG, "Display module is disabled in configuration");
-    return NULL;
-  }
+  TRICHTER_LOGW(TAG, "Display module is disabled in configuration");
+  return NULL;
 #endif
 }
 
-void display_write_await_session(lv_disp_t *disp)
-{
+void display_write_await_session(lv_disp_t *disp) {
 #ifdef CONFIG_ENABLE_DISPLAY
+  if (!disp) {
+    TRICHTER_LOGW(TAG, "Display not available for await session display");
+    return;
+  }
+
   lv_obj_t *scr = lv_disp_get_scr_act(disp);
   lv_obj_clean(scr);
 
@@ -120,7 +151,7 @@ void display_write_await_session(lv_disp_t *disp)
   lv_img_set_src(img, &img_icon);
   lv_obj_align(img, LV_ALIGN_TOP_MID, 0, -5);
 
-  ESP_LOGI(TAG, "Icon displayed on screen");
+  TRICHTER_LOGI(TAG, "Icon displayed on screen");
 
   lv_label_set_long_mode(label,
                          LV_LABEL_LONG_SCROLL_CIRCULAR); /* Circular scroll */
@@ -128,47 +159,64 @@ void display_write_await_session(lv_disp_t *disp)
   lv_obj_set_width(label, disp->driver->hor_res);
   lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, 0);
 #else
-  ESP_LOGW(TAG, "Display module is disabled in configuration, skipping display write");
+  TRICHTER_LOGW(
+      TAG,
+      "Display module is disabled in configuration, skipping display write");
 #endif
 }
 
-void display_write_result(lv_disp_t *disp, const SessionResult *res)
-{
+void display_write_result(lv_disp_t *disp, const SessionResult *res) {
 #ifdef CONFIG_ENABLE_DISPLAY
+  if (!disp) {
+    TRICHTER_LOGW(TAG, "Display not available for result display");
+    return;
+  }
+
+  if (!res) {
+    TRICHTER_LOGW(TAG, "No session result to display");
+    return;
+  }
+
   lv_obj_t *scr = lv_disp_get_scr_act(disp);
   lv_obj_clean(scr);
 
   lv_obj_t *lbl_dur = lv_label_create(scr);
-  lv_label_set_text_fmt(lbl_dur, "%.2f L in %.2f s!", res->volume_l, res->duration_us / 1e6f);
+  lv_label_set_text_fmt(lbl_dur, "%.2f L in %.2f s!", res->volume_l,
+                        res->duration_us / 1e6f);
   lv_obj_set_width(lbl_dur, disp->driver->hor_res);
   lv_obj_align(lbl_dur, LV_ALIGN_CENTER, 0, -10);
 
   lv_obj_t *lbl_rate = lv_label_create(scr);
   lv_label_set_long_mode(lbl_rate, LV_LABEL_LONG_WRAP);
-  ESP_LOGI(TAG, "Rate: %.2f", res->rate_lpm);
+  TRICHTER_LOGI(TAG, "Rate: %.2f", res->rate_lpm);
   lv_label_set_text_fmt(lbl_rate, "-> %.2f L/min", res->rate_lpm);
   lv_obj_set_width(lbl_rate, disp->driver->hor_res);
   lv_obj_align(lbl_rate, LV_ALIGN_CENTER, 0, 10);
 
 #else
-  ESP_LOGW(TAG, "Display module is disabled in configuration, skipping display write");
+  TRICHTER_LOGW(
+      TAG,
+      "Display module is disabled in configuration, skipping display write");
 #endif
 }
 
-void display_show_icon(lv_disp_t *disp)
-{
+void display_show_icon(lv_disp_t *disp) {
 #ifdef CONFIG_ENABLE_DISPLAY
 #else
-  ESP_LOGW(TAG, "Display module is disabled in configuration, skipping icon display");
+  ESP_LOGW(
+      TAG,
+      "Display module is disabled in configuration, skipping icon display");
 #endif
 }
 
-void display_cleanup(void)
-{
-  if (i2c_bus_handle != NULL)
-  {
-    ESP_LOGI(TAG, "Deinitialize I2C master bus");
-    ESP_ERROR_CHECK(i2c_del_master_bus(i2c_bus_handle));
+void display_cleanup(void) {
+  if (i2c_bus_handle != NULL) {
+    TRICHTER_LOGI(TAG, "Deinitialize I2C master bus");
+    esp_err_t err = i2c_del_master_bus(i2c_bus_handle);
+    if (err != ESP_OK) {
+      TRICHTER_LOG_ERROR(TRICHTER_ERR_DISPLAY, err,
+                         "Failed to deinitialize I2C master bus");
+    }
     i2c_bus_handle = NULL;
   }
 }

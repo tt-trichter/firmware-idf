@@ -1,19 +1,19 @@
 #pragma once
 
-#include <stdint.h>
+#include "esp_camera.h"
 #include "esp_err.h"
 #include "esp_timer.h"
-#include "esp_camera.h"
 #include "soc/gpio_num.h"
+#include "trichter_error.h"
+#include <stdint.h>
 
 #define PULSES_PER_LITER 6.6f
 
-typedef struct
-{
-    uint64_t duration_us;
-    float rate_lpm;
-    float volume_l;
-    camera_fb_t *image_fb;
+typedef struct {
+  uint64_t duration_us;
+  float rate_lpm;
+  float volume_l;
+  camera_fb_t *image_fb;
 } SessionResult;
 
 esp_err_t sensor_init(gpio_num_t pulse_gpio);

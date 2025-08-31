@@ -2,6 +2,7 @@
 
 #include "hal/lv_hal_disp.h"
 #include "sensor/sensor.h"
+#include "trichter_error.h"
 
 lv_disp_t *display_init(void);
 

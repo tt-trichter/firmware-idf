@@ -2,6 +2,7 @@
 #include "esp_camera.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "trichter_error.h"
 
 static const char *TAG = "camera";
 
@@ -30,102 +31,90 @@ static camera_config_t camera_config = {
     .fb_count = 2,
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY};
 
-esp_err_t camera_init_module(void)
-{
+esp_err_t camera_init_module(void) {
 #ifdef CONFIG_ENABLE_CAMERA
-    esp_err_t err = esp_camera_init(&camera_config);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Camera Init Failed (%d)", err);
-    }
-    return err;
+  esp_err_t err = esp_camera_init(&camera_config);
+  TRICHTER_CHECK_ERR(err, TRICHTER_ERR_CAMERA, "Camera initialization failed");
+  TRICHTER_LOGI(TAG, "Camera initialized successfully");
+  return ESP_OK;
 #else
-    {
-        ESP_LOGW(TAG, "Camera module is disabled in configuration");
-        return ESP_OK;
-    }
+  TRICHTER_LOGW(TAG, "Camera module is disabled in configuration");
+  return ESP_OK;
 #endif
 }
 
-typedef struct
-{
-    httpd_req_t *req;
-    size_t len;
+typedef struct {
+  httpd_req_t *req;
+  size_t len;
 } jpg_chunking_t;
 
-static size_t jpg_encode_stream(void *arg, size_t index, const void *data, size_t len)
-{
-    jpg_chunking_t *j = arg;
-    if (!index)
-    {
-        j->len = 0;
-    }
-    if (httpd_resp_send_chunk(j->req, (const char *)data, len) != ESP_OK)
-    {
-        return 0;
-    }
-    j->len += len;
-    return len;
+static size_t jpg_encode_stream(void *arg, size_t index, const void *data,
+                                size_t len) {
+  jpg_chunking_t *j = arg;
+  if (!index) {
+    j->len = 0;
+  }
+  if (httpd_resp_send_chunk(j->req, (const char *)data, len) != ESP_OK) {
+    return 0;
+  }
+  j->len += len;
+  return len;
 }
 
-camera_fb_t *camera_capture_frame(void)
-{
+camera_fb_t *camera_capture_frame(void) {
 #ifdef CONFIG_ENABLE_CAMERA
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb)
-    {
-        ESP_LOGE(TAG, "Camera capture failed");
-        return NULL;
-    }
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_CAMERA, ESP_FAIL,
+                       "Camera capture failed - no frame buffer");
+    return NULL;
+  }
 
-    ESP_LOGI(TAG, "Image captured: %dx%d, %zu bytes",
-             fb->width, fb->height, fb->len);
-    return fb;
+  TRICHTER_LOGI(TAG, "Image captured: %dx%d, %zu bytes", fb->width, fb->height,
+                fb->len);
+  return fb;
 #else
-    {
-        ESP_LOGW(TAG, "Camera module is disabled in configuration");
-        return NULL;
-    }
+  TRICHTER_LOGW(TAG, "Camera module is disabled in configuration");
+  return NULL;
 #endif
 }
 
-esp_err_t camera_jpg_image_http_handler(httpd_req_t *req)
-{
+esp_err_t camera_jpg_image_http_handler(httpd_req_t *req) {
 #ifdef CONFIG_ENABLE_CAMERA
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb)
-    {
-        ESP_LOGE(TAG, "Camera capture failed");
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_CAMERA, ESP_FAIL,
+                       "Camera capture failed for HTTP handler");
+    httpd_resp_send_500(req);
+    return ESP_FAIL;
+  }
 
-    httpd_resp_set_type(req, "image/jpeg");
-    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+  httpd_resp_set_type(req, "image/jpeg");
+  httpd_resp_set_hdr(req, "Content-Disposition",
+                     "inline; filename=capture.jpg");
 
-    esp_err_t res;
-    if (fb->format == PIXFORMAT_JPEG)
-    {
-        res = httpd_resp_send(req, (const char *)fb->buf, fb->len) == ESP_OK
-                  ? ESP_OK
-                  : ESP_FAIL;
-    }
-    else
-    {
-        jpg_chunking_t jchunk = {.req = req, .len = 0};
-        res = frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk)
-                  ? ESP_OK
-                  : ESP_FAIL;
-        httpd_resp_send_chunk(req, NULL, 0);
-    }
+  esp_err_t res;
+  if (fb->format == PIXFORMAT_JPEG) {
+    res = httpd_resp_send(req, (const char *)fb->buf, fb->len) == ESP_OK
+              ? ESP_OK
+              : ESP_FAIL;
+  } else {
+    jpg_chunking_t jchunk = {.req = req, .len = 0};
+    res = frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk) ? ESP_OK : ESP_FAIL;
+    httpd_resp_send_chunk(req, NULL, 0);
+  }
 
-    esp_camera_fb_return(fb);
-    return res;
+  esp_camera_fb_return(fb);
+
+  if (res != ESP_OK) {
+    TRICHTER_LOG_ERROR(TRICHTER_ERR_CAMERA, res,
+                       "Failed to send HTTP response");
+  }
+
+  return res;
 #else
-    {
-        ESP_LOGW(TAG, "Camera module is disabled in configuration");
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
+  TRICHTER_LOGW(TAG, "Camera module is disabled in configuration");
+  httpd_resp_send_500(req);
+  return ESP_FAIL;
 #endif
 }

@@ -20,9 +20,10 @@
 
 #define LED_GPIO_NUM 21
 
+#include "esp_camera.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
-#include "esp_camera.h"
+#include "trichter_error.h"
 
 esp_err_t camera_init_module(void);
 
