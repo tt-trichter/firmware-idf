@@ -19,10 +19,10 @@ static const char *TAG = "display";
 
 #define I2C_MASTER_NUM I2C_NUM_0
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ (400 * 1000)
-#define EXAMPLE_PIN_NUM_SDA GPIO_NUM_5
-#define EXAMPLE_PIN_NUM_SCL GPIO_NUM_6
+#define EXAMPLE_PIN_NUM_SDA CONFIG_DISPLAY_SDA_PIN
+#define EXAMPLE_PIN_NUM_SCL CONFIG_DISPLAY_SCL_PIN
 #define EXAMPLE_PIN_NUM_RST -1
-#define EXAMPLE_I2C_HW_ADDR 0x3C
+#define EXAMPLE_I2C_HW_ADDR CONFIG_DISPLAY_I2C_ADDR
 
 #define EXAMPLE_LCD_H_RES 128
 #define EXAMPLE_LCD_V_RES 64
@@ -200,12 +200,33 @@ void display_write_result(lv_disp_t *disp, const SessionResult *res) {
 #endif
 }
 
+void display_write_measuring(lv_disp_t *disp) {
+#ifdef CONFIG_ENABLE_DISPLAY
+  if (!disp) {
+    return;
+  }
+
+  lv_obj_t *scr = lv_disp_get_scr_act(disp);
+  lv_obj_clean(scr);
+
+  lv_obj_t *label = lv_label_create(scr);
+  lv_label_set_text(label, "Measuring...");
+  lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+#endif
+}
+
 void display_show_icon(lv_disp_t *disp) {
 #ifdef CONFIG_ENABLE_DISPLAY
-#else
-  ESP_LOGW(
-      TAG,
-      "Display module is disabled in configuration, skipping icon display");
+  if (!disp) {
+    return;
+  }
+
+  lv_obj_t *scr = lv_disp_get_scr_act(disp);
+  lv_obj_clean(scr);
+
+  lv_obj_t *img = lv_img_create(scr);
+  lv_img_set_src(img, &img_icon);
+  lv_obj_align(img, LV_ALIGN_CENTER, 0, 0);
 #endif
 }
 

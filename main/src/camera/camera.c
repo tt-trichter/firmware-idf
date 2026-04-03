@@ -26,15 +26,42 @@ static camera_config_t camera_config = {
     .xclk_freq_hz = 20000000,
     .fb_location = CAMERA_FB_IN_PSRAM,
     .pixel_format = PIXFORMAT_JPEG,
-    .frame_size = FRAMESIZE_P_HD, // 720x1280 - portrait mode
-    .jpeg_quality = 10,
+    .frame_size = FRAMESIZE_VGA, // 720x1280 - portrait mode
+    .jpeg_quality = 15,
     .fb_count = 2,
-    .grab_mode = CAMERA_GRAB_WHEN_EMPTY};
+    .grab_mode = CAMERA_GRAB_LATEST};
 
 esp_err_t camera_init_module(void) {
 #ifdef CONFIG_ENABLE_CAMERA
   esp_err_t err = esp_camera_init(&camera_config);
   TRICHTER_CHECK_ERR(err, TRICHTER_ERR_CAMERA, "Camera initialization failed");
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (s) {
+    s->set_brightness(s, 1);
+    s->set_contrast(s, 0);
+    s->set_saturation(s, 0);
+
+    s->set_whitebal(s, 1);
+    s->set_awb_gain(s, 1);
+    s->set_wb_mode(s, 0);
+
+    s->set_exposure_ctrl(s, 1);
+    s->set_gain_ctrl(s, 1);
+    s->set_aec2(s, 1);
+    s->set_ae_level(s, 1);
+
+    s->set_special_effect(s, 0);
+  }
+
+  for (int i = 0; i < 5; ++i) {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb) {
+      esp_camera_fb_return(fb);
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
   TRICHTER_LOGI(TAG, "Camera initialized successfully");
   return ESP_OK;
 #else
@@ -79,42 +106,14 @@ camera_fb_t *camera_capture_frame(void) {
 #endif
 }
 
-esp_err_t camera_jpg_image_http_handler(httpd_req_t *req) {
-#ifdef CONFIG_ENABLE_CAMERA
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    TRICHTER_LOG_ERROR(TRICHTER_ERR_CAMERA, ESP_FAIL,
-                       "Camera capture failed for HTTP handler");
-    httpd_resp_send_500(req);
-    return ESP_FAIL;
+void camera_clear_fb(void) {
+  camera_fb_t *fb = NULL;
+  while (esp_camera_available_frames()) {
+    TRICHTER_LOGI(TAG, "Clearing available camera frames...");
+    fb = esp_camera_fb_get();
   }
 
-  httpd_resp_set_type(req, "image/jpeg");
-  httpd_resp_set_hdr(req, "Content-Disposition",
-                     "inline; filename=capture.jpg");
-
-  esp_err_t res;
-  if (fb->format == PIXFORMAT_JPEG) {
-    res = httpd_resp_send(req, (const char *)fb->buf, fb->len) == ESP_OK
-              ? ESP_OK
-              : ESP_FAIL;
-  } else {
-    jpg_chunking_t jchunk = {.req = req, .len = 0};
-    res = frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk) ? ESP_OK : ESP_FAIL;
-    httpd_resp_send_chunk(req, NULL, 0);
+  if (fb != NULL) {
+    esp_camera_fb_return(fb);
   }
-
-  esp_camera_fb_return(fb);
-
-  if (res != ESP_OK) {
-    TRICHTER_LOG_ERROR(TRICHTER_ERR_CAMERA, res,
-                       "Failed to send HTTP response");
-  }
-
-  return res;
-#else
-  TRICHTER_LOGW(TAG, "Camera module is disabled in configuration");
-  httpd_resp_send_500(req);
-  return ESP_FAIL;
-#endif
 }

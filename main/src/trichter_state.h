@@ -12,6 +12,7 @@ typedef enum {
   APP_STATE_WAITING_SESSION,
   APP_STATE_SESSION_RUNNING,
   APP_STATE_SESSION_COMPLETE,
+  APP_STATE_TRANSFERRING_IMAGE,
   APP_STATE_ERROR
 } app_state_t;
 
@@ -22,6 +23,7 @@ typedef struct {
   bool camera_enabled;
   bool display_enabled;
   bool sensor_enabled;
+  volatile bool fake_run_requested;
   SessionResult current_session;
 } app_context_t;
 
@@ -40,6 +42,8 @@ static const state_transition_t valid_transitions[] = {
     {APP_STATE_SESSION_RUNNING, APP_STATE_SESSION_COMPLETE, true},
     {APP_STATE_SESSION_RUNNING, APP_STATE_ERROR, true},
     {APP_STATE_SESSION_COMPLETE, APP_STATE_WAITING_SESSION, true},
+    {APP_STATE_SESSION_COMPLETE, APP_STATE_TRANSFERRING_IMAGE, true},
+    {APP_STATE_TRANSFERRING_IMAGE, APP_STATE_SESSION_COMPLETE, true},
     {APP_STATE_ERROR, APP_STATE_WAITING_SESSION, true},
     {APP_STATE_ERROR, APP_STATE_READY, true},
     {APP_STATE_WAITING_SESSION, APP_STATE_ERROR, true},

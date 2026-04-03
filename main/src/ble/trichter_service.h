@@ -32,6 +32,10 @@
   BLE_UUID128_INIT(0x7C, 0x56, 0x34, 0x12, 0xF0, 0xDE, 0xBC, 0x9A, 0x78, 0x56, \
                    0x34, 0x12, 0x78, 0x56, 0x34, 0x12)
 
+#define TRICHTER_IMAGE_CHUNK_FLAG_START 0x01
+#define TRICHTER_IMAGE_CHUNK_FLAG_END   0x02
+#define TRICHTER_IMAGE_BURST_CHUNKS 8
+
 typedef enum {
   TRICHTER_STATUS_IDLE = 0x00,
   TRICHTER_STATUS_WAITING = 0x01,
@@ -42,8 +46,22 @@ typedef enum {
 
 typedef enum {
   TRICHTER_CMD_ACKNOWLEDGE = 0x02,
-  TRICHTER_CMD_RESET = 0x03
+  TRICHTER_CMD_RESET = 0x03,
+  TRICHTER_CMD_FAKE_RUN = 0x04,
+  TRICHTER_CMD_IMAGE_START = 0x05,
+  TRICHTER_CMD_IMAGE_CANCEL = 0x06,
+  TRICHTER_CMD_IMAGE_ACK = 0x07,
+  TRICHTER_CMD_IMAGE_RECEIVED = 0x08,
 } trichter_control_cmd_t;
+
+typedef struct {
+    bool active;
+    uint32_t transfer_id;
+    uint8_t *buffer;
+    size_t size;
+    size_t offset;
+    uint16_t mtu;
+} trichter_image_transfer_t;
 
 typedef struct __attribute__((packed)) {
   uint32_t duration_ms;
@@ -51,7 +69,18 @@ typedef struct __attribute__((packed)) {
   float volume_l;
   uint8_t has_image;
   uint32_t image_size;
+  uint16_t image_width;
+  uint16_t image_height;
+  uint8_t image_format;
+  uint32_t image_transfer_id;
 } trichter_ble_result_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t transfer_id;
+    uint32_t offset;
+    uint16_t payload_len;
+    uint8_t flags;
+} trichter_image_chunk_header_t;
 
 typedef struct {
   bool connected;

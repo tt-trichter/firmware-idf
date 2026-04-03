@@ -1,24 +1,26 @@
 #pragma once
 
-#define PWDN_GPIO_NUM -1
-#define RESET_GPIO_NUM -1
-#define XCLK_GPIO_NUM 10
-#define SIOD_GPIO_NUM 40
-#define SIOC_GPIO_NUM 39
+#include "sdkconfig.h"
 
-#define Y9_GPIO_NUM 48
-#define Y8_GPIO_NUM 11
-#define Y7_GPIO_NUM 12
-#define Y6_GPIO_NUM 14
-#define Y5_GPIO_NUM 16
-#define Y4_GPIO_NUM 18
-#define Y3_GPIO_NUM 17
-#define Y2_GPIO_NUM 15
-#define VSYNC_GPIO_NUM 38
-#define HREF_GPIO_NUM 47
-#define PCLK_GPIO_NUM 13
+#define PWDN_GPIO_NUM  CONFIG_CAMERA_PIN_PWDN
+#define RESET_GPIO_NUM CONFIG_CAMERA_PIN_RESET
+#define XCLK_GPIO_NUM  CONFIG_CAMERA_PIN_XCLK
+#define SIOD_GPIO_NUM  CONFIG_CAMERA_PIN_SIOD
+#define SIOC_GPIO_NUM  CONFIG_CAMERA_PIN_SIOC
 
-#define LED_GPIO_NUM 21
+#define Y9_GPIO_NUM    CONFIG_CAMERA_PIN_Y9
+#define Y8_GPIO_NUM    CONFIG_CAMERA_PIN_Y8
+#define Y7_GPIO_NUM    CONFIG_CAMERA_PIN_Y7
+#define Y6_GPIO_NUM    CONFIG_CAMERA_PIN_Y6
+#define Y5_GPIO_NUM    CONFIG_CAMERA_PIN_Y5
+#define Y4_GPIO_NUM    CONFIG_CAMERA_PIN_Y4
+#define Y3_GPIO_NUM    CONFIG_CAMERA_PIN_Y3
+#define Y2_GPIO_NUM    CONFIG_CAMERA_PIN_Y2
+#define VSYNC_GPIO_NUM CONFIG_CAMERA_PIN_VSYNC
+#define HREF_GPIO_NUM  CONFIG_CAMERA_PIN_HREF
+#define PCLK_GPIO_NUM  CONFIG_CAMERA_PIN_PCLK
+
+#define LED_GPIO_NUM   CONFIG_CAMERA_PIN_LED
 
 #include "esp_camera.h"
 #include "esp_err.h"
@@ -27,6 +29,6 @@
 
 esp_err_t camera_init_module(void);
 
-esp_err_t camera_jpg_image_http_handler(httpd_req_t *req);
-
 camera_fb_t *camera_capture_frame(void);
+
+void camera_clear_fb(void);

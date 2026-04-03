@@ -1,5 +1,7 @@
 #include "sensor/sensor.h"
+#if CONFIG_ENABLE_CAMERA
 #include "camera/camera.h"
+#endif
 #include "driver/gpio.h"
 #include "driver/pulse_cnt.h"
 #include "esp_log.h"
@@ -17,6 +19,7 @@ static SemaphoreHandle_t s_first_sem = NULL;
 static SemaphoreHandle_t s_idle_sem = NULL;
 static esp_timer_handle_t s_idle_timer = NULL;
 static volatile uint64_t s_first_ts = 0;
+static gpio_num_t s_pulse_gpio = GPIO_NUM_NC;
 
 #define PULSES_PER_LITER 6.6f
 
@@ -37,6 +40,7 @@ static void IRAM_ATTR idle_timer_cb(void *arg) {
 }
 
 esp_err_t sensor_init(gpio_num_t pulse_gpio) {
+  s_pulse_gpio = pulse_gpio;
   s_first_sem = xSemaphoreCreateBinary();
   s_idle_sem = xSemaphoreCreateBinary();
   TRICHTER_CHECK(s_first_sem && s_idle_sem, TRICHTER_ERR_MEMORY,
@@ -99,6 +103,9 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
   TRICHTER_CHECK_ERR(pcnt_unit_start(s_pcnt_unit), TRICHTER_ERR_SENSOR,
                      "Failed to start PCNT unit");
 
+  // Re-enable GPIO interrupt for this session (was disabled after last pulse)
+  gpio_intr_enable(s_pulse_gpio);
+
   if (xSemaphoreTake(s_first_sem, portMAX_DELAY) != pdTRUE) {
     TRICHTER_LOG_ERROR(TRICHTER_ERR_TIMEOUT, ESP_ERR_TIMEOUT,
                        "Timeout waiting for first pulse");
@@ -127,14 +134,15 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
     return ESP_ERR_TIMEOUT;
   }
 
+  // Arm idle timer immediately after startup gate so stop is always detected
   esp_timer_start_once(s_idle_timer, CONFIG_SENSOR_IDLE_TIMEOUT_MS * 1000ULL);
   int last_count = startup_count;
 
-  TRICHTER_LOGI(TAG, "Capturing image during session...");
-  camera_fb_t *session_image = camera_capture_frame();
-  if (!session_image) {
-    TRICHTER_LOGW(TAG, "Failed to capture image during session");
-  }
+#if CONFIG_ENABLE_CAMERA
+  camera_fb_t *session_image = NULL;
+  bool photo_taken = false;
+  uint64_t t_photo = t_start + (uint64_t)CONFIG_CAMERA_CAPTURE_DELAY_MS * 1000ULL;
+#endif
 
   while (true) {
     int cnt;
@@ -148,6 +156,18 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
       esp_timer_start_once(s_idle_timer,
                            CONFIG_SENSOR_IDLE_TIMEOUT_MS * 1000ULL);
     }
+
+#if CONFIG_ENABLE_CAMERA
+    if (!photo_taken && esp_timer_get_time() >= t_photo) {
+      photo_taken = true;
+      TRICHTER_LOGI(TAG, "Capturing image during session...");
+      session_image = camera_capture_frame();
+      if (!session_image) {
+        TRICHTER_LOGW(TAG, "Failed to capture image during session");
+      }
+    }
+#endif
+
     if (xSemaphoreTake(s_idle_sem, 0) == pdTRUE) {
       break;
     }
@@ -169,11 +189,16 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
   out_result->duration_us = dur_us;
   out_result->rate_lpm = rate_lpm;
   out_result->volume_l = volume_l;
+#if CONFIG_ENABLE_CAMERA
   out_result->image_fb = session_image;
-
   TRICHTER_LOGI(TAG, "Result: %d pulses, %.2fs, %.2f L/min, %.2f L, image: %s",
                 total_pulses, secs, rate_lpm, volume_l,
-                session_image ? "captured" : "failed");
+                session_image ? "captured" : "none");
+#else
+  out_result->image_fb = NULL;
+  TRICHTER_LOGI(TAG, "Result: %d pulses, %.2fs, %.2f L/min, %.2f L",
+                total_pulses, secs, rate_lpm, volume_l);
+#endif
   return ESP_OK;
 }
 

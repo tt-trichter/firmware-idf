@@ -1,4 +1,11 @@
 menu "Trichter Configuration"
+    config DEVICE_ID
+        string "Device ID"
+        default "000001"
+        help
+            Unique identifier for this device. Appended to the BLE advertising
+            name: "Trichter-<DEVICE_ID>". Change per device before flashing.
+
     config ENABLE_CAMERA
         bool "Enable Camera"
         default y
@@ -22,7 +29,7 @@ menu "Trichter Configuration"
         default y
         help
             Enable display support in the project.
-        
+
 endmenu
 
 menu "WIFI Configuration"
@@ -48,6 +55,13 @@ endmenu
 
 menu "Sensor Configuration"
 
+    config SENSOR_GPIO
+        int "Pulse sensor GPIO pin"
+        default 4
+        range 0 48
+        help
+            GPIO pin connected to the hall effect flow sensor pulse output.
+
     config SENSOR_STARTUP_PULSES
         int "Startup window required pulses"
         default 5
@@ -72,3 +86,127 @@ menu "Sensor Configuration"
             When enabled, test scenarios will be used instead of real sensor measurements.
 
 endmenu
+
+if ENABLE_CAMERA
+
+config CAMERA_CAPTURE_DELAY_MS
+    int "Delay after flow starts before taking photo (ms)"
+    default 2000
+    help
+        How long to wait after the startup gate passes before capturing the
+        image. If flow stops before this delay elapses, no photo is taken.
+
+menu "Camera Pin Configuration"
+
+    config CAMERA_PIN_PWDN
+        int "Power-down GPIO (-1 = not connected)"
+        default -1
+        range -1 48
+
+    config CAMERA_PIN_RESET
+        int "Reset GPIO (-1 = not connected)"
+        default -1
+        range -1 48
+
+    config CAMERA_PIN_XCLK
+        int "XCLK GPIO"
+        default 10
+        range 0 48
+
+    config CAMERA_PIN_SIOD
+        int "SCCB SDA GPIO"
+        default 40
+        range 0 48
+
+    config CAMERA_PIN_SIOC
+        int "SCCB SCL GPIO"
+        default 39
+        range 0 48
+
+    config CAMERA_PIN_Y9
+        int "Y9 (D7) GPIO"
+        default 48
+        range 0 48
+
+    config CAMERA_PIN_Y8
+        int "Y8 (D6) GPIO"
+        default 11
+        range 0 48
+
+    config CAMERA_PIN_Y7
+        int "Y7 (D5) GPIO"
+        default 12
+        range 0 48
+
+    config CAMERA_PIN_Y6
+        int "Y6 (D4) GPIO"
+        default 14
+        range 0 48
+
+    config CAMERA_PIN_Y5
+        int "Y5 (D3) GPIO"
+        default 16
+        range 0 48
+
+    config CAMERA_PIN_Y4
+        int "Y4 (D2) GPIO"
+        default 18
+        range 0 48
+
+    config CAMERA_PIN_Y3
+        int "Y3 (D1) GPIO"
+        default 17
+        range 0 48
+
+    config CAMERA_PIN_Y2
+        int "Y2 (D0) GPIO"
+        default 15
+        range 0 48
+
+    config CAMERA_PIN_VSYNC
+        int "VSYNC GPIO"
+        default 38
+        range 0 48
+
+    config CAMERA_PIN_HREF
+        int "HREF GPIO"
+        default 47
+        range 0 48
+
+    config CAMERA_PIN_PCLK
+        int "PCLK GPIO"
+        default 13
+        range 0 48
+
+    config CAMERA_PIN_LED
+        int "LED GPIO"
+        default 21
+        range 0 48
+
+endmenu
+
+endif # ENABLE_CAMERA
+
+if ENABLE_DISPLAY
+
+menu "Display Pin Configuration"
+
+    config DISPLAY_SDA_PIN
+        int "I2C SDA GPIO"
+        default 5
+        range 0 48
+
+    config DISPLAY_SCL_PIN
+        int "I2C SCL GPIO"
+        default 6
+        range 0 48
+
+    config DISPLAY_I2C_ADDR
+        hex "I2C device address"
+        default 0x3C
+        help
+            I2C address of the SH1107/SSD1306 display. Typically 0x3C or 0x3D.
+
+endmenu
+
+endif # ENABLE_DISPLAY

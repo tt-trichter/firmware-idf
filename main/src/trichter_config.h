@@ -41,13 +41,13 @@
 #define TRICHTER_ERROR_RECOVERY_DELAY_MS 1000
 
 #define TRICHTER_LOGI(tag, fmt, ...)                                           \
-  ESP_LOGI(tag, "[TRICHTER] " fmt, ##__VA_ARGS__)
+  ESP_LOGI(tag, "(%s:%d) [TRICHTER] " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 #define TRICHTER_LOGW(tag, fmt, ...)                                           \
-  ESP_LOGW(tag, "[TRICHTER] " fmt, ##__VA_ARGS__)
+  ESP_LOGW(tag, "(%s:%d) [TRICHTER] " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 #define TRICHTER_LOGE(tag, fmt, ...)                                           \
-  ESP_LOGE(tag, "[TRICHTER] " fmt, ##__VA_ARGS__)
+  ESP_LOGE(tag, "(%s:%d) [TRICHTER] " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 #define TRICHTER_LOGD(tag, fmt, ...)                                           \
-  ESP_LOGD(tag, "[TRICHTER] " fmt, ##__VA_ARGS__)
+  ESP_LOGD(tag, "(%s:%d) [TRICHTER] " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define TRICHTER_CONFIG_CHECK(condition, message)                              \
   do {                                                                         \

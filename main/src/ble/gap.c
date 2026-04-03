@@ -152,10 +152,10 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
                  rc);
       }
 
-      rc = ble_gap_security_initiate(event->connect.conn_handle);
-      if (rc != 0) {
-        TRICHTER_LOGW(TAG, "ble_gap_security_initiate failed: %d", rc);
-      }
+      // rc = ble_gap_security_initiate(event->connect.conn_handle);
+      // if (rc != 0) {
+      //   TRICHTER_LOGW(TAG, "ble_gap_security_initiate failed: %d", rc);
+      // }
 
     } else {
       start_advertising();

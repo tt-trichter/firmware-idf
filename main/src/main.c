@@ -2,7 +2,9 @@
 #include "ble/gap.h"
 #include "ble/gatt_svc.h"
 #include "ble/trichter_service.h"
+#include "esp_camera.h"
 #include "freertos/projdefs.h"
+#include "host/ble_att.h"
 #include "sensor/sensor.h"
 #include "trichter_config.h"
 #include "trichter_state.h"
@@ -25,12 +27,21 @@
 
 static const char *TAG = "trichter_main";
 
+#if TRICHTER_DISPLAY_ENABLED
+static lv_disp_t *s_disp = NULL;
+#else
+static void *s_disp = NULL;
+#endif
+static app_state_t s_last_displayed = APP_STATE_INIT;
+
 static app_context_t app_ctx = {.state = APP_STATE_INIT,
                                 .ble_enabled = TRICHTER_BLE_ENABLED,
                                 .ble_connected = false,
                                 .camera_enabled = TRICHTER_CAMERA_ENABLED,
                                 .display_enabled = TRICHTER_DISPLAY_ENABLED,
                                 .sensor_enabled = TRICHTER_SENSOR_ENABLED};
+
+static TaskHandle_t s_fake_run_task = NULL;
 
 static esp_err_t initialize_system_components(void) {
   TRICHTER_LOGI(TAG, "Initializing system components...");
@@ -49,7 +60,7 @@ static esp_err_t initialize_system_components(void) {
   TRICHTER_CHECK_ERR(ret, TRICHTER_ERR_INIT, "Failed to initialize NVS flash");
 
   if (trichter_is_sensor_available()) {
-    ret = sensor_init(GPIO_NUM_4);
+    ret = sensor_init(TRICHTER_SENSOR_GPIO);
     if (ret == ESP_OK) {
       app_ctx.sensor_enabled = true;
       TRICHTER_LOGI(TAG, "Sensor initialized successfully");
@@ -128,21 +139,39 @@ static void process_session_result(SessionResult *session_result) {
   memcpy(&app_ctx.current_session, session_result, sizeof(SessionResult));
   app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
 
+#if TRICHTER_DISPLAY_ENABLED
+  if (app_ctx.display_enabled && s_disp) {
+    display_write_result(s_disp, session_result);
+    s_last_displayed = APP_STATE_SESSION_COMPLETE;
+  }
+#endif
+
   if (app_ctx.ble_enabled && trichter_ble_is_connected()) {
     TRICHTER_LOGI(TAG, "Sending session result via BLE...");
 
     trichter_ble_set_status(TRICHTER_STATUS_COMPLETE);
+
+    TRICHTER_LOGI(TAG, "2. Image timestamp: %d", session_result->image_fb->timestamp.tv_sec);
     trichter_ble_send_result(session_result);
 
     int timeout_count = 0;
 
+    // bool was_connected_at_start = trichter_ble_is_connected();
+
     while (trichter_ble_is_waiting_for_ack() &&
-           timeout_count < TRICHTER_BLE_ACK_TIMEOUT_SECONDS) {
+           timeout_count < TRICHTER_BLE_ACK_TIMEOUT_SECONDS &&
+           trichter_ble_is_connected()) {
+      while (app_ctx.state == APP_STATE_TRANSFERRING_IMAGE) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+      }
+      TRICHTER_LOGI(TAG, "Awaiting ble ack...");
       vTaskDelay(pdMS_TO_TICKS(1000));
       timeout_count++;
     }
 
-    if (trichter_ble_is_waiting_for_ack()) {
+    if (!trichter_ble_is_connected()) {
+      TRICHTER_LOGW(TAG, "BLE disconnected before ACK was received");
+    } else if (trichter_ble_is_waiting_for_ack()) {
       TRICHTER_LOGW(TAG, "BLE acknowledgment timeout after %d seconds",
                     TRICHTER_BLE_ACK_TIMEOUT_SECONDS);
     } else {
@@ -154,6 +183,8 @@ static void process_session_result(SessionResult *session_result) {
 
   sensor_cleanup_session_result(session_result);
 
+  s_last_displayed =
+      APP_STATE_INIT; // force display redraw on next WAITING_SESSION
   app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
 }
 
@@ -192,6 +223,38 @@ static esp_err_t run_measurement_session(SessionResult *session_result) {
   return ESP_OK;
 }
 
+static void run_fake_session(SessionResult *session_result) {
+  TRICHTER_LOGI(TAG, "Starting fake session");
+
+  // if(esp_camera_available_frames()) {
+  //   TRICHTER_LOGE(TAG, "THERE ARE FRAMES AVAILABLE!!!!");
+  //   return;
+  // }
+
+  app_state_set(&app_ctx, APP_STATE_SESSION_RUNNING);
+
+  if (app_ctx.ble_enabled && app_ctx.ble_connected) {
+    trichter_ble_set_status(TRICHTER_STATUS_RUNNING);
+  }
+
+  session_result->duration_us = 5000000;
+  session_result->rate_lpm = 12.5f;
+  session_result->volume_l = 1.04f;
+  session_result->image_fb = NULL;
+
+#if TRICHTER_CAMERA_ENABLED
+  if (app_ctx.camera_enabled) {
+    session_result->image_fb = camera_capture_frame();
+    TRICHTER_LOGI(TAG, "1. Image timestamp: %d", session_result->image_fb->timestamp.tv_sec);
+    TRICHTER_LOGI(TAG, "Camera took picture! Size: %dx%d",
+                  session_result->image_fb->height,
+                  session_result->image_fb->width);
+  }
+#endif
+
+  process_session_result(session_result);
+}
+
 static void ble_session_control_callback(trichter_control_cmd_t cmd) {
   switch (cmd) {
   case TRICHTER_CMD_ACKNOWLEDGE:
@@ -205,6 +268,36 @@ static void ble_session_control_callback(trichter_control_cmd_t cmd) {
     trichter_ble_set_status(TRICHTER_STATUS_IDLE);
     app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
     break;
+
+  case TRICHTER_CMD_FAKE_RUN:
+    if (app_ctx.state == APP_STATE_WAITING_SESSION) {
+      TRICHTER_LOGI(TAG, "Fake run requested via BLE");
+      xTaskNotifyGive(s_fake_run_task);
+    } else {
+      TRICHTER_LOGW(TAG, "Not in Waiting Mode! - Running fake run anyway");
+      xTaskNotifyGive(s_fake_run_task);
+    }
+    break;
+
+  case TRICHTER_CMD_IMAGE_START:
+    TRICHTER_LOGI(TAG, "Transferring image...");
+    app_state_set(&app_ctx, APP_STATE_TRANSFERRING_IMAGE);
+    break;
+
+  case TRICHTER_CMD_IMAGE_ACK:
+    TRICHTER_LOGI(TAG, "Still transferring image...");
+    break;
+
+  case TRICHTER_CMD_IMAGE_CANCEL:
+    TRICHTER_LOGW(TAG, "Image transfer canceled!");
+    app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
+    break;
+
+  case TRICHTER_CMD_IMAGE_RECEIVED:
+    TRICHTER_LOGI(TAG, "Image transfer complete");
+    app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
+    break;
+
 
   default:
     TRICHTER_LOGW(TAG, "Unknown BLE command: %d", cmd);
@@ -240,6 +333,13 @@ static esp_err_t initialize_ble_stack(void) {
   trichter_ble_set_session_callback(ble_session_control_callback);
 
   nimble_host_config_init();
+
+  rc = ble_att_set_preferred_mtu(256);
+  if (rc != 0) {
+    ESP_LOGW(TAG, "Failed to set preferred MTU: %d", rc);
+  } else {
+    ESP_LOGI(TAG, "Preferred ATT MTU set to %u", ble_att_preferred_mtu());
+  }
 
   xTaskCreate(nimble_host_task, "NimBLE Host", 4 * 1024, NULL, 5, NULL);
 
@@ -277,6 +377,23 @@ static bool should_start_session(void) {
   return true;
 }
 
+static void fake_run_task(void *arg) {
+  SessionResult session_result;
+
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+#if TRICHTER_DISPLAY_ENABLED
+    if (app_ctx.display_enabled && s_disp) {
+      display_write_measuring(s_disp);
+      s_last_displayed = APP_STATE_SESSION_RUNNING;
+    }
+#endif
+
+    run_fake_session(&session_result);
+  }
+}
+
 void app_main(void) {
   TRICHTER_LOGI(TAG, "=== Trichter Firmware Starting ===");
 
@@ -296,23 +413,28 @@ void app_main(void) {
   }
 
 #if TRICHTER_DISPLAY_ENABLED
-  lv_disp_t *disp = NULL;
   if (trichter_is_display_available()) {
-    disp = display_init();
-    if (disp) {
+    s_disp = display_init();
+    if (s_disp) {
       TRICHTER_LOGI(TAG, "Display initialized successfully");
-      display_show_icon(disp);
+      display_show_icon(s_disp);
     } else {
       TRICHTER_LOGW(TAG, "Display initialization failed");
       app_ctx.display_enabled = false;
     }
   }
-#else
-  void *disp = NULL;
 #endif
 
   app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
   SessionResult session_result;
+
+  TRICHTER_LOGI(TAG, "Creating fake task...");
+  BaseType_t rc = xTaskCreate(fake_run_task, "fake_run", 4 * 1024, NULL, 5,
+                              &s_fake_run_task);
+  if (rc != pdPASS) {
+    TRICHTER_LOGE(TAG, "Failed to create fake run task");
+    return;
+  }
 
   TRICHTER_LOGI(TAG, "=== System Ready ===");
   TRICHTER_LOGI(TAG, "State: %s", app_state_to_string(app_ctx.state));
@@ -330,20 +452,40 @@ void app_main(void) {
 
     switch (app_ctx.state) {
     case APP_STATE_WAITING_SESSION:
-      if (app_ctx.display_enabled && disp) {
 #if TRICHTER_DISPLAY_ENABLED
-        display_write_await_session(disp);
-#endif
+      if (app_ctx.display_enabled && s_disp &&
+          s_last_displayed != APP_STATE_WAITING_SESSION) {
+        display_write_await_session(s_disp);
+        s_last_displayed = APP_STATE_WAITING_SESSION;
       }
+#endif
 
       if (app_ctx.ble_enabled && app_ctx.ble_connected) {
         trichter_ble_set_status(TRICHTER_STATUS_WAITING);
       }
 
-      if (should_start_session()) {
+      if (app_ctx.fake_run_requested) {
+        app_ctx.fake_run_requested = false;
+
+#if TRICHTER_DISPLAY_ENABLED
+        if (app_ctx.display_enabled && s_disp) {
+          display_write_measuring(s_disp);
+          s_last_displayed = APP_STATE_SESSION_RUNNING;
+        }
+#endif
+
+        run_fake_session(&session_result);
+      } else if (should_start_session()) {
         TRICHTER_LOGI(
             TAG,
             "Ready to start session - waiting for sensor flow detection...");
+
+#if TRICHTER_DISPLAY_ENABLED
+        if (app_ctx.display_enabled && s_disp) {
+          display_write_measuring(s_disp);
+          s_last_displayed = APP_STATE_SESSION_RUNNING;
+        }
+#endif
 
         esp_err_t err = run_measurement_session(&session_result);
         if (err != ESP_OK) {
@@ -353,29 +495,10 @@ void app_main(void) {
             trichter_ble_set_status(TRICHTER_STATUS_ERROR);
           }
 
+          s_last_displayed = APP_STATE_INIT; // force redraw on recovery
           vTaskDelay(pdMS_TO_TICKS(TRICHTER_ERROR_RECOVERY_DELAY_MS));
           app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
         }
-      }
-      break;
-
-    case APP_STATE_SESSION_COMPLETE:
-      if (app_ctx.display_enabled && disp) {
-#if TRICHTER_DISPLAY_ENABLED
-        display_write_result(disp, &app_ctx.current_session);
-#endif
-      }
-
-      if (app_ctx.ble_enabled && app_ctx.ble_connected) {
-        if (!trichter_ble_is_waiting_for_ack()) {
-          app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
-        }
-      } else {
-        TRICHTER_LOGI(
-            TAG, "Standalone mode - waiting %d seconds before next session",
-            TRICHTER_STANDALONE_SESSION_DELAY_MS / 1000);
-        vTaskDelay(pdMS_TO_TICKS(TRICHTER_STANDALONE_SESSION_DELAY_MS));
-        app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
       }
       break;
 

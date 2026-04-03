@@ -14,7 +14,7 @@ set(ALL_SRC_FILES
 
 idf_component_register(
     SRCS 
-       "bin/firmware-ble.c"
+       "src/main.c"
        ${ALL_SRC_FILES}
     INCLUDE_DIRS "src"
     PRIV_REQUIRES 

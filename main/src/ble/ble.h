@@ -18,7 +18,7 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 
-#define DEVICE_NAME "Trichter-734842"
+#define DEVICE_NAME ("Trichter-" CONFIG_DEVICE_ID)
 
 void nimble_host_config_init(void);
 void nimble_host_task(void *param);

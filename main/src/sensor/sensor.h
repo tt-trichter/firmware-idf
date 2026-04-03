@@ -7,8 +7,6 @@
 #include "trichter_error.h"
 #include <stdint.h>
 
-#define PULSES_PER_LITER 6.6f
-
 typedef struct {
   uint64_t duration_us;
   float rate_lpm;
