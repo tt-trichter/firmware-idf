@@ -1,8 +1,15 @@
 #include "ble/gap.h"
 #include "ble/ble.h"
 #include "ble/gatt_svc.h"
+#include "ble/security.h"
 #include "ble/trichter_service.h"
+#include "host/ble_gap.h"
+#include "host/ble_sm.h"
+#include "host/ble_store.h"
+#include "services/gap/ble_svc_gap.h"
 #include "trichter_error.h"
+#include <inttypes.h>
+#include <stdint.h>
 
 static const char *TAG = "ble_gap";
 
@@ -55,43 +62,40 @@ static void print_conn_desc(struct ble_gap_conn_desc *desc) {
 }
 
 static void start_advertising(void) {
-  int rc = 0;
-  const char *name;
+  int rc;
+  const char *name = ble_svc_gap_device_name();
+
   struct ble_hs_adv_fields adv_fields = {0};
   struct ble_hs_adv_fields rsp_fields = {0};
   struct ble_gap_adv_params adv_params = {0};
 
+  // General discoverable, LE only
   adv_fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 
-  name = ble_svc_gap_device_name();
-  adv_fields.name = (uint8_t *)name;
-  adv_fields.name_len = strlen(name);
-  adv_fields.name_is_complete = 1;
-
-  adv_fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-  adv_fields.tx_pwr_lvl_is_present = 1;
+  // Put the 128-bit service UUID here so scanners can filter without relying on
+  // scan response
+  static const ble_uuid128_t trichter_uuid = TRICHTER_SERVICE_UUID;
+  adv_fields.uuids128 = &trichter_uuid;
+  adv_fields.num_uuids128 = 1;
+  adv_fields.uuids128_is_complete = 1;
 
   adv_fields.appearance = BLE_GAP_APPEARANCE_GENERIC_SENSOR;
   adv_fields.appearance_is_present = 1;
 
-  adv_fields.le_role = BLE_GAP_LE_ROLE_PERIPHERAL;
-  adv_fields.le_role_is_present = 1;
-
   rc = ble_gap_adv_set_fields(&adv_fields);
   if (rc != 0) {
-    TRICHTER_LOG_ERROR(TRICHTER_ERR_BLE, rc, "failed to set advertising data");
+    TRICHTER_LOGE(TAG, "failed to set advertising data rc=%d", rc);
+    // If you can, log the error string too:
+    // ESP_LOGE(TAG, "adv_set_fields rc=%d (%s)", rc, ble_hs_err_to_str(rc));
     return;
   }
 
-  rsp_fields.device_addr = addr_val;
-  rsp_fields.device_addr_type = own_addr_type;
-  rsp_fields.device_addr_is_present = 1;
+  rsp_fields.name = (uint8_t *)name;
+  rsp_fields.name_len = strlen(name);
+  rsp_fields.name_is_complete = 1;
 
-  rsp_fields.uri = esp_uri;
-  rsp_fields.uri_len = sizeof(esp_uri);
-
-  rsp_fields.adv_itvl = BLE_GAP_ADV_ITVL_MS(500);
-  rsp_fields.adv_itvl_is_present = 1;
+  rsp_fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
+  rsp_fields.tx_pwr_lvl_is_present = 1;
 
   rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
   if (rc != 0) {
@@ -99,12 +103,11 @@ static void start_advertising(void) {
                        "failed to set scan response data");
     return;
   }
-
   adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
   adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-  adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(500);
-  adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(510);
+  adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(300);
+  adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(350);
 
   rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params,
                          gap_event_handler, NULL);
@@ -112,6 +115,7 @@ static void start_advertising(void) {
     TRICHTER_LOG_ERROR(TRICHTER_ERR_BLE, rc, "failed to start advertising");
     return;
   }
+
   TRICHTER_LOGI(TAG, "advertising started!");
 }
 
@@ -135,7 +139,6 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
       }
 
       print_conn_desc(&desc);
-
       trichter_ble_on_connect(event->connect.conn_handle);
 
       struct ble_gap_upd_params params = {.itvl_min = desc.conn_itvl,
@@ -147,8 +150,13 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
       if (rc != 0) {
         ESP_LOGE(TAG, "failed to update connection parameters, error code: %d",
                  rc);
-        return rc;
       }
+
+      rc = ble_gap_security_initiate(event->connect.conn_handle);
+      if (rc != 0) {
+        TRICHTER_LOGW(TAG, "ble_gap_security_initiate failed: %d", rc);
+      }
+
     } else {
       start_advertising();
     }
@@ -159,7 +167,6 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
              event->disconnect.reason);
 
     trichter_ble_on_disconnect();
-
     start_advertising();
     return rc;
 
@@ -206,12 +213,57 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
     ESP_LOGI(TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d",
              event->mtu.conn_handle, event->mtu.channel_id, event->mtu.value);
     return rc;
+
   case BLE_GAP_EVENT_ENC_CHANGE:
     ESP_LOGI(TAG, "Encryption change; status=%d", event->enc_change.status);
+
+    // if status==0 encryption is on, check conn dev for bonded/auth flags
+    if (event->enc_change.status == 0) {
+      rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
+      if (rc == 0) {
+        ESP_LOGI(TAG, "Encrypted=%d Authenticated=%d Bonded?%d",
+                 desc.sec_state.encrypted, desc.sec_state.authenticated,
+                 desc.sec_state.bonded);
+      }
+    }
     return 0;
 
+  case BLE_GAP_EVENT_PASSKEY_ACTION: {
+    const uint16_t ch = event->passkey.conn_handle;
+    const uint8_t action = event->passkey.params.action;
+
+    TRICHTER_LOGI(TAG, "PASSKEY_ACTION: conn=%u action=%u", ch, action);
+
+    if (action == BLE_SM_IOACT_DISP) {
+      const uint32_t passkey = trichter_generate_passkey();
+
+      // Placeholder now: log (later call your display driver)
+      trichter_ble_show_passkey(passkey);
+
+      struct ble_sm_io io = {0};
+      io.action = BLE_SM_IOACT_DISP;
+      io.passkey = passkey;
+
+      int rc = ble_sm_inject_io(ch, &io);
+      if (rc != 0) {
+        TRICHTER_LOGE(TAG, "ble_sm_inject_io(DISP) failed: %d", rc);
+      }
+      return 0;
+    }
+
+    TRICHTER_LOGW(TAG, "Unhandled passkey action=%u", action);
+    return 0;
+  }
+
   case BLE_GAP_EVENT_REPEAT_PAIRING:
-    ESP_LOGI(TAG, "Repeat Pairing Event -> Not Handled Properly!");
+    TRICHTER_LOGW(TAG,
+                  "Repeat pairing requested - deleting old bond and retrying");
+
+    rc = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+    if (rc == 0) {
+      int del_rc = ble_store_util_delete_peer(&desc.peer_id_addr);
+      TRICHTER_LOGW(TAG, "ble_store_util_delete_peer rc=%d", del_rc);
+    }
     return BLE_GAP_REPEAT_PAIRING_RETRY;
   }
 

@@ -31,6 +31,8 @@ typedef struct {
   bool valid;
 } state_transition_t;
 
+static inline const char *app_state_to_string(app_state_t state);
+
 static const state_transition_t valid_transitions[] = {
     {APP_STATE_INIT, APP_STATE_READY, true},
     {APP_STATE_READY, APP_STATE_WAITING_SESSION, true},
@@ -71,6 +73,8 @@ static inline esp_err_t app_state_set(app_context_t *ctx,
     return ESP_ERR_INVALID_STATE;
   }
 
+  TRICHTER_LOGI("TRICHTER_STATE", "Transitioning from %s to %s.", app_state_to_string(ctx->state), app_state_to_string(new_state));
+
   ctx->state = new_state;
   return ESP_OK;
 }
@@ -109,3 +113,4 @@ static inline const char *app_state_to_string(app_state_t state) {
     return "UNKNOWN";
   }
 }
+

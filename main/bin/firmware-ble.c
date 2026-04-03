@@ -196,22 +196,7 @@ static void ble_session_control_callback(trichter_control_cmd_t cmd) {
   switch (cmd) {
   case TRICHTER_CMD_ACKNOWLEDGE:
     TRICHTER_LOGI(TAG, "BLE result acknowledged");
-    // Clear the waiting state when client acknowledges
     trichter_ble_cleanup_result();
-
-    TRICHTER_LOGI(TAG, "Session Running [TEST]");
-    app_state_set(&app_ctx, APP_STATE_SESSION_RUNNING);
-    vTaskDelay(pdMS_TO_TICKS(5000));
-
-    TRICHTER_LOGI(TAG, "Session Done [TEST]");
-
-    SessionResult session_result = {
-        .duration_us = 7000000,
-        .rate_lpm = 7,
-        .volume_l = 0.7,
-    };
-    TRICHTER_LOGI(TAG, "Processing SessionResult [TEST]");
-    process_session_result(&session_result);
     break;
 
   case TRICHTER_CMD_RESET:
@@ -351,12 +336,10 @@ void app_main(void) {
 #endif
       }
 
-      // Set BLE status to waiting if connected
       if (app_ctx.ble_enabled && app_ctx.ble_connected) {
         trichter_ble_set_status(TRICHTER_STATUS_WAITING);
       }
 
-      // Start sensor-driven session (will block until sensor detects flow)
       if (should_start_session()) {
         TRICHTER_LOGI(
             TAG,
@@ -383,15 +366,11 @@ void app_main(void) {
 #endif
       }
 
-      // In BLE mode, wait for acknowledgment before next session
       if (app_ctx.ble_enabled && app_ctx.ble_connected) {
         if (!trichter_ble_is_waiting_for_ack()) {
-          // Result was acknowledged, ready for next session
           app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
         }
-        // Otherwise, keep waiting for acknowledgment
       } else {
-        // In standalone mode, wait before next session
         TRICHTER_LOGI(
             TAG, "Standalone mode - waiting %d seconds before next session",
             TRICHTER_STANDALONE_SESSION_DELAY_MS / 1000);

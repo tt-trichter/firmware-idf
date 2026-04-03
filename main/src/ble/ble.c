@@ -1,6 +1,8 @@
 #include "ble/ble.h"
+#include "ble/security.h"
 #include "gap.h"
 #include "gatt_svc.h"
+#include "host/ble_hs.h"
 #include "trichter_error.h"
 #include "trichter_service.h"
 
@@ -23,13 +25,14 @@ void nimble_host_config_init(void) {
   ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
+  // trichter_ble_security_init();
+
   ble_store_config_init();
 }
 
 void nimble_host_task(void *param) {
   TRICHTER_LOGI(TAG, "nimble host task has been started!");
-
   nimble_port_run();
-
   vTaskDelete(NULL);
 }
+
