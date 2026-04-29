@@ -5,6 +5,7 @@
 #include "esp_camera.h"
 #include "freertos/projdefs.h"
 #include "host/ble_att.h"
+#include "sdkconfig.h"
 #include "sensor/sensor.h"
 #include "trichter_config.h"
 #include "trichter_state.h"
@@ -151,7 +152,6 @@ static void process_session_result(SessionResult *session_result) {
 
     trichter_ble_set_status(TRICHTER_STATUS_COMPLETE);
 
-    TRICHTER_LOGI(TAG, "2. Image timestamp: %d", session_result->image_fb->timestamp.tv_sec);
     trichter_ble_send_result(session_result);
 
     int timeout_count = 0;
@@ -245,7 +245,6 @@ static void run_fake_session(SessionResult *session_result) {
 #if TRICHTER_CAMERA_ENABLED
   if (app_ctx.camera_enabled) {
     session_result->image_fb = camera_capture_frame();
-    TRICHTER_LOGI(TAG, "1. Image timestamp: %d", session_result->image_fb->timestamp.tv_sec);
     TRICHTER_LOGI(TAG, "Camera took picture! Size: %dx%d",
                   session_result->image_fb->height,
                   session_result->image_fb->width);
@@ -297,7 +296,6 @@ static void ble_session_control_callback(trichter_control_cmd_t cmd) {
     TRICHTER_LOGI(TAG, "Image transfer complete");
     app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
     break;
-
 
   default:
     TRICHTER_LOGW(TAG, "Unknown BLE command: %d", cmd);

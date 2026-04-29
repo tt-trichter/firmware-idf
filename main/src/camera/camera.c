@@ -6,6 +6,7 @@
 
 static const char *TAG = "camera";
 
+#ifdef CONFIG_ENABLE_CAMERA
 static camera_config_t camera_config = {
     .pin_pwdn = PWDN_GPIO_NUM,
     .pin_reset = RESET_GPIO_NUM,
@@ -30,6 +31,9 @@ static camera_config_t camera_config = {
     .jpeg_quality = 15,
     .fb_count = 2,
     .grab_mode = CAMERA_GRAB_LATEST};
+#else
+static camera_config_t camera_config = {};
+#endif
 
 esp_err_t camera_init_module(void) {
 #ifdef CONFIG_ENABLE_CAMERA
@@ -90,6 +94,13 @@ static size_t jpg_encode_stream(void *arg, size_t index, const void *data,
 
 camera_fb_t *camera_capture_frame(void) {
 #ifdef CONFIG_ENABLE_CAMERA
+  for (int i = 0; i < 5; ++i) {
+    camera_fb_t *tmp = esp_camera_fb_get();
+    if (tmp) {
+      esp_camera_fb_return(tmp);
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
     TRICHTER_LOG_ERROR(TRICHTER_ERR_CAMERA, ESP_FAIL,

@@ -2,6 +2,7 @@
 
 #include "sdkconfig.h"
 
+#ifdef CONFIG_ENABLE_CAMERA
 #define PWDN_GPIO_NUM  CONFIG_CAMERA_PIN_PWDN
 #define RESET_GPIO_NUM CONFIG_CAMERA_PIN_RESET
 #define XCLK_GPIO_NUM  CONFIG_CAMERA_PIN_XCLK
@@ -21,6 +22,7 @@
 #define PCLK_GPIO_NUM  CONFIG_CAMERA_PIN_PCLK
 
 #define LED_GPIO_NUM   CONFIG_CAMERA_PIN_LED
+#endif
 
 #include "esp_camera.h"
 #include "esp_err.h"
