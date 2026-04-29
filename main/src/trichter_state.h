@@ -23,7 +23,6 @@ typedef struct {
   bool camera_enabled;
   bool display_enabled;
   bool sensor_enabled;
-  volatile bool fake_run_requested;
   SessionResult current_session;
 } app_context_t;
 

@@ -9,6 +9,7 @@
 #include "hal/pcnt_types.h"
 #include "sdkconfig.h"
 #include "trichter_error.h"
+#include <inttypes.h>
 #include <stdio.h>
 
 static const char *TAG = "sensor_driver";
@@ -20,6 +21,7 @@ static SemaphoreHandle_t s_idle_sem = NULL;
 static esp_timer_handle_t s_idle_timer = NULL;
 static volatile uint64_t s_first_ts = 0;
 static gpio_num_t s_pulse_gpio = GPIO_NUM_NC;
+static bool s_armed = false;
 
 #define PULSES_PER_LITER 6.6f
 
@@ -94,7 +96,12 @@ esp_err_t sensor_init(gpio_num_t pulse_gpio) {
   return ESP_OK;
 }
 
-esp_err_t sensor_measure_session(SessionResult *out_result) {
+esp_err_t sensor_arm(void) {
+  if (s_armed) {
+    return ESP_OK;
+  }
+
+  // Drain any leftover semaphore tokens from the previous session
   xSemaphoreTake(s_first_sem, 0);
   xSemaphoreTake(s_idle_sem, 0);
 
@@ -103,20 +110,42 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
   TRICHTER_CHECK_ERR(pcnt_unit_start(s_pcnt_unit), TRICHTER_ERR_SENSOR,
                      "Failed to start PCNT unit");
 
-  // Re-enable GPIO interrupt for this session (was disabled after last pulse)
   gpio_intr_enable(s_pulse_gpio);
+  s_armed = true;
+  TRICHTER_LOGI(TAG, "Sensor armed — waiting for first pulse on GPIO %d",
+                s_pulse_gpio);
+  return ESP_OK;
+}
 
-  if (xSemaphoreTake(s_first_sem, portMAX_DELAY) != pdTRUE) {
-    TRICHTER_LOG_ERROR(TRICHTER_ERR_TIMEOUT, ESP_ERR_TIMEOUT,
-                       "Timeout waiting for first pulse");
-    return ESP_ERR_TIMEOUT;
+bool sensor_poll_triggered(void) {
+  if (!s_armed) {
+    return false;
   }
+  if (xSemaphoreTake(s_first_sem, 0) == pdTRUE) {
+    s_armed = false;
+    TRICHTER_LOGI(TAG, "First pulse detected at t=%" PRIu64 " us", s_first_ts);
+    return true;
+  }
+  return false;
+}
+
+esp_err_t sensor_measure_session(SessionResult *out_result) {
   uint64_t t_start = s_first_ts;
   uint64_t startup_deadline =
       t_start + (uint64_t)CONFIG_SENSOR_STARTUP_WINDOW_MS * 1000ULL;
 
+  uint64_t now = esp_timer_get_time();
+  int64_t remaining_us = (int64_t)(startup_deadline - now);
+  TRICHTER_LOGI(TAG,
+                "Startup validation: window=%dms, required=%d pulses, "
+                "%" PRId64 "ms remaining in window",
+                CONFIG_SENSOR_STARTUP_WINDOW_MS, CONFIG_SENSOR_STARTUP_PULSES,
+                remaining_us / 1000);
+
+  // Wait out the remainder of the startup window, yielding to IDLE each tick.
   int startup_count = 1;
   while (esp_timer_get_time() < startup_deadline) {
+    vTaskDelay(1); // 1 tick — always yields; PCNT counts in hardware
     int cnt;
     TRICHTER_CHECK_ERR(pcnt_unit_get_count(s_pcnt_unit, &cnt),
                        TRICHTER_ERR_SENSOR,
@@ -124,8 +153,10 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
     startup_count = cnt;
   }
   if (startup_count < CONFIG_SENSOR_STARTUP_PULSES) {
-    TRICHTER_LOGW(TAG, "Startup window %dms: only %d pulses (required: %d)",
-                  CONFIG_SENSOR_STARTUP_WINDOW_MS, startup_count,
+    TRICHTER_LOGW(TAG,
+                  "Startup gate FAILED: %d pulses in %dms window (need %d) — "
+                  "rejecting session, re-arming",
+                  startup_count, CONFIG_SENSOR_STARTUP_WINDOW_MS,
                   CONFIG_SENSOR_STARTUP_PULSES);
     TRICHTER_CHECK_ERR(pcnt_unit_stop(s_pcnt_unit), TRICHTER_ERR_SENSOR,
                        "Failed to stop PCNT unit after startup timeout");
@@ -133,6 +164,9 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
                        "Insufficient pulses during startup window");
     return ESP_ERR_TIMEOUT;
   }
+
+  TRICHTER_LOGI(TAG, "Startup gate PASSED: %d pulses — session running",
+                startup_count);
 
   // Arm idle timer immediately after startup gate so stop is always detected
   esp_timer_start_once(s_idle_timer, CONFIG_SENSOR_IDLE_TIMEOUT_MS * 1000ULL);
@@ -144,7 +178,19 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
   uint64_t t_photo = t_start + (uint64_t)CONFIG_CAMERA_CAPTURE_DELAY_MS * 1000ULL;
 #endif
 
+  // Poll interval: short enough to restart the idle timer promptly on new
+  // pulses, long enough to yield to IDLE and avoid the task watchdog.
+  // pdMS_TO_TICKS(1) == 0 at the default 100 Hz tick rate, which turns
+  // vTaskDelay into a no-yield busy spin — use a real tick interval instead.
+  const TickType_t POLL_TICKS = pdMS_TO_TICKS(10);
+
   while (true) {
+    // Block until the idle timer fires OR the poll interval elapses.
+    // This is the only blocking call in the loop, so IDLE always gets CPU.
+    if (xSemaphoreTake(s_idle_sem, POLL_TICKS) == pdTRUE) {
+      break;
+    }
+
     int cnt;
     TRICHTER_CHECK_ERR(pcnt_unit_get_count(s_pcnt_unit, &cnt),
                        TRICHTER_ERR_SENSOR,
@@ -167,11 +213,6 @@ esp_err_t sensor_measure_session(SessionResult *out_result) {
       }
     }
 #endif
-
-    if (xSemaphoreTake(s_idle_sem, 0) == pdTRUE) {
-      break;
-    }
-    vTaskDelay(pdMS_TO_TICKS(1));
   }
   uint64_t t_end = esp_timer_get_time();
 

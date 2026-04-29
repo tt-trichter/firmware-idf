@@ -455,13 +455,15 @@ esp_err_t trichter_ble_service_init(void) {
 }
 
 void trichter_ble_set_status(trichter_session_status_t status) {
+  if (status == ble_state.current_status) {
+    return; // no change — skip redundant notification
+  }
   ble_state.current_status = status;
 
   if (ble_state.connected && ble_state.status_subscribed) {
+    TRICHTER_LOGI(TAG, "Status notification: %d", status);
     int rc = ble_gatts_notify(ble_state.conn_handle, status_char_handle);
-    if (rc == 0) {
-      TRICHTER_LOGD(TAG, "Status notification sent: %d", status);
-    } else {
+    if (rc != 0) {
       TRICHTER_LOGW(TAG, "Failed to send status notification: %d", rc);
     }
   }
@@ -521,6 +523,8 @@ void trichter_ble_on_disconnect(void) {
   ble_state.image_subscribed = false;
   ble_state.waiting_for_ack = false;
   ble_state.conn_handle = 0;
+  // Reset cached status so the first notification after reconnect is always sent
+  ble_state.current_status = (trichter_session_status_t)-1;
 
   trichter_ble_reset_image_transfer();
 

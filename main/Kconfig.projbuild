@@ -12,12 +12,6 @@ menu "Trichter Configuration"
         help
             Enable camera support in the project.
 
-    config ENABLE_WIFI
-        bool "Enable WiFi"
-        default y
-        help
-            Enable WiFi support in the project.
-
     config ENABLE_SENSOR
         bool "Enable Sensor"
         default y
@@ -30,27 +24,25 @@ menu "Trichter Configuration"
         help
             Enable display support in the project.
 
+    config ENABLE_LED_STATUS
+        bool "Enable RGB status LED"
+        default y
+        help
+            Enable the WS2812B RGB status LED driver.
+
 endmenu
 
-menu "WIFI Configuration"
+menu "LED Status Configuration"
+    depends on ENABLE_LED_STATUS
 
-    config WIFI_SSID
-        string "WiFi SSID"
-        default "myssid"
+    config LED_STATUS_GPIO
+        int "RGB LED GPIO pin (WS2812 data line)"
+        default 48
+        range 0 48
         help
-            SSID (network name) to connect to.
+            GPIO connected to the WS2812B data line.
+            GPIO 48 is the onboard RGB LED on the Arduino Nano ESP32.
 
-    config WIFI_PASSWORD
-        string "WiFi Password"
-        default "mypassword"
-        help
-            WiFi password (WPA or WPA2) to use.
-
-    config WIFI_MAXIMUM_RETRY
-        int "Maximum retry"
-        default 5
-        help
-            Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
 endmenu
 
 menu "Sensor Configuration"

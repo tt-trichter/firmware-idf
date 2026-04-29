@@ -18,6 +18,10 @@
 #include "display/display.h"
 #endif
 
+#if TRICHTER_LED_STATUS_ENABLED
+#include "led_status/led_status.h"
+#endif
+
 #include "esp_log.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -43,6 +47,15 @@ static app_context_t app_ctx = {.state = APP_STATE_INIT,
                                 .sensor_enabled = TRICHTER_SENSOR_ENABLED};
 
 static TaskHandle_t s_fake_run_task = NULL;
+
+// Wrapper: validates state transition, updates LED, and logs in one call.
+// Use this everywhere instead of calling app_state_set() directly.
+static void set_state(app_state_t new_state) {
+  app_state_set(&app_ctx, new_state);
+#if TRICHTER_LED_STATUS_ENABLED
+  led_status_update_from_state(new_state);
+#endif
+}
 
 static esp_err_t initialize_system_components(void) {
   TRICHTER_LOGI(TAG, "Initializing system components...");
@@ -99,7 +112,7 @@ static esp_err_t initialize_system_components(void) {
   app_ctx.display_enabled = false;
 #endif
 
-  app_state_set(&app_ctx, APP_STATE_READY);
+  set_state( APP_STATE_READY);
   TRICHTER_LOGI(TAG, "System initialization complete");
 
   return ESP_OK;
@@ -131,14 +144,14 @@ static void log_session_result(const SessionResult *session_result) {
 static void process_session_result(SessionResult *session_result) {
   if (!session_result) {
     TRICHTER_LOGE(TAG, "Invalid session result pointer");
-    app_ctx.state = APP_STATE_ERROR;
+    set_state(APP_STATE_ERROR);
     return;
   }
 
   log_session_result(session_result);
 
   memcpy(&app_ctx.current_session, session_result, sizeof(SessionResult));
-  app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
+  set_state( APP_STATE_SESSION_COMPLETE);
 
 #if TRICHTER_DISPLAY_ENABLED
   if (app_ctx.display_enabled && s_disp) {
@@ -185,23 +198,13 @@ static void process_session_result(SessionResult *session_result) {
 
   s_last_displayed =
       APP_STATE_INIT; // force display redraw on next WAITING_SESSION
-  app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
+  set_state( APP_STATE_WAITING_SESSION);
 }
 
 static esp_err_t run_measurement_session(SessionResult *session_result) {
-  if (!session_result) {
-    TRICHTER_LOGE(TAG, "Invalid session result pointer");
-    return ESP_ERR_INVALID_ARG;
-  }
+  TRICHTER_LOGI(TAG, "Flow detected — starting active measurement");
 
-  if (!app_ctx.sensor_enabled) {
-    TRICHTER_LOGE(TAG, "Cannot run session - sensor not enabled");
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  TRICHTER_LOGI(TAG, "Awaiting for flow to start...");
-
-  app_state_set(&app_ctx, APP_STATE_SESSION_RUNNING);
+  set_state( APP_STATE_SESSION_RUNNING);
 
   if (app_ctx.ble_enabled && app_ctx.ble_connected) {
     trichter_ble_set_status(TRICHTER_STATUS_RUNNING);
@@ -210,7 +213,7 @@ static esp_err_t run_measurement_session(SessionResult *session_result) {
   esp_err_t err = sensor_measure_session(session_result);
   if (err != ESP_OK) {
     TRICHTER_LOGE(TAG, "Session measurement failed: %s", esp_err_to_name(err));
-    app_state_set(&app_ctx, APP_STATE_ERROR);
+    set_state( APP_STATE_ERROR);
 
     if (app_ctx.ble_enabled && app_ctx.ble_connected) {
       trichter_ble_set_status(TRICHTER_STATUS_ERROR);
@@ -231,7 +234,7 @@ static void run_fake_session(SessionResult *session_result) {
   //   return;
   // }
 
-  app_state_set(&app_ctx, APP_STATE_SESSION_RUNNING);
+  set_state( APP_STATE_SESSION_RUNNING);
 
   if (app_ctx.ble_enabled && app_ctx.ble_connected) {
     trichter_ble_set_status(TRICHTER_STATUS_RUNNING);
@@ -265,7 +268,7 @@ static void ble_session_control_callback(trichter_control_cmd_t cmd) {
     TRICHTER_LOGI(TAG, "BLE reset requested");
     trichter_ble_cleanup_result();
     trichter_ble_set_status(TRICHTER_STATUS_IDLE);
-    app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
+    set_state( APP_STATE_WAITING_SESSION);
     break;
 
   case TRICHTER_CMD_FAKE_RUN:
@@ -280,7 +283,7 @@ static void ble_session_control_callback(trichter_control_cmd_t cmd) {
 
   case TRICHTER_CMD_IMAGE_START:
     TRICHTER_LOGI(TAG, "Transferring image...");
-    app_state_set(&app_ctx, APP_STATE_TRANSFERRING_IMAGE);
+    set_state( APP_STATE_TRANSFERRING_IMAGE);
     break;
 
   case TRICHTER_CMD_IMAGE_ACK:
@@ -289,12 +292,12 @@ static void ble_session_control_callback(trichter_control_cmd_t cmd) {
 
   case TRICHTER_CMD_IMAGE_CANCEL:
     TRICHTER_LOGW(TAG, "Image transfer canceled!");
-    app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
+    set_state( APP_STATE_SESSION_COMPLETE);
     break;
 
   case TRICHTER_CMD_IMAGE_RECEIVED:
     TRICHTER_LOGI(TAG, "Image transfer complete");
-    app_state_set(&app_ctx, APP_STATE_SESSION_COMPLETE);
+    set_state( APP_STATE_SESSION_COMPLETE);
     break;
 
   default:
@@ -360,19 +363,8 @@ static void update_ble_connection_state(void) {
   } else if (!app_ctx.ble_connected && was_connected) {
     TRICHTER_LOGI(TAG,
                   "BLE client disconnected - switching to standalone mode");
-    app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
+    set_state( APP_STATE_WAITING_SESSION);
   }
-}
-
-static bool should_start_session(void) {
-  // Check if system is ready to start a session
-  if (!app_can_start_session(&app_ctx)) {
-    return false;
-  }
-
-  // Always ready to start if sensor is enabled - sensor will block until flow
-  // is detected
-  return true;
 }
 
 static void fake_run_task(void *arg) {
@@ -423,7 +415,15 @@ void app_main(void) {
   }
 #endif
 
-  app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
+#if TRICHTER_LED_STATUS_ENABLED
+  esp_err_t led_ret = led_status_init(TRICHTER_LED_STATUS_GPIO);
+  if (led_ret != ESP_OK) {
+    TRICHTER_LOGW(TAG, "LED status init failed: %s — continuing without LED",
+                  esp_err_to_name(led_ret));
+  }
+#endif
+
+  set_state( APP_STATE_WAITING_SESSION);
   SessionResult session_result;
 
   TRICHTER_LOGI(TAG, "Creating fake task...");
@@ -462,40 +462,33 @@ void app_main(void) {
         trichter_ble_set_status(TRICHTER_STATUS_WAITING);
       }
 
-      if (app_ctx.fake_run_requested) {
-        app_ctx.fake_run_requested = false;
+      if (app_ctx.sensor_enabled) {
+        // Arm is idempotent — only enables the interrupt if not already armed
+        sensor_arm();
+
+        if (sensor_poll_triggered()) {
+          TRICHTER_LOGI(TAG, "First pulse received — entering active measurement");
 
 #if TRICHTER_DISPLAY_ENABLED
-        if (app_ctx.display_enabled && s_disp) {
-          display_write_measuring(s_disp);
-          s_last_displayed = APP_STATE_SESSION_RUNNING;
-        }
-#endif
-
-        run_fake_session(&session_result);
-      } else if (should_start_session()) {
-        TRICHTER_LOGI(
-            TAG,
-            "Ready to start session - waiting for sensor flow detection...");
-
-#if TRICHTER_DISPLAY_ENABLED
-        if (app_ctx.display_enabled && s_disp) {
-          display_write_measuring(s_disp);
-          s_last_displayed = APP_STATE_SESSION_RUNNING;
-        }
-#endif
-
-        esp_err_t err = run_measurement_session(&session_result);
-        if (err != ESP_OK) {
-          TRICHTER_LOGE(TAG, "Session failed: %s", esp_err_to_name(err));
-
-          if (app_ctx.ble_enabled && app_ctx.ble_connected) {
-            trichter_ble_set_status(TRICHTER_STATUS_ERROR);
+          if (app_ctx.display_enabled && s_disp) {
+            display_write_measuring(s_disp);
+            s_last_displayed = APP_STATE_SESSION_RUNNING;
           }
+#endif
 
-          s_last_displayed = APP_STATE_INIT; // force redraw on recovery
-          vTaskDelay(pdMS_TO_TICKS(TRICHTER_ERROR_RECOVERY_DELAY_MS));
-          app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
+          esp_err_t err = run_measurement_session(&session_result);
+          if (err != ESP_OK) {
+            TRICHTER_LOGE(TAG, "Session failed: %s — re-arming sensor",
+                          esp_err_to_name(err));
+
+            if (app_ctx.ble_enabled && app_ctx.ble_connected) {
+              trichter_ble_set_status(TRICHTER_STATUS_ERROR);
+            }
+
+            s_last_displayed = APP_STATE_INIT;
+            vTaskDelay(pdMS_TO_TICKS(TRICHTER_ERROR_RECOVERY_DELAY_MS));
+            set_state( APP_STATE_WAITING_SESSION);
+          }
         }
       }
       break;
@@ -503,7 +496,7 @@ void app_main(void) {
     case APP_STATE_ERROR:
       TRICHTER_LOGE(TAG, "System in error state - attempting recovery");
       vTaskDelay(pdMS_TO_TICKS(TRICHTER_ERROR_RECOVERY_DELAY_MS));
-      app_state_set(&app_ctx, APP_STATE_WAITING_SESSION);
+      set_state( APP_STATE_WAITING_SESSION);
       break;
 
     default:

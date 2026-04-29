@@ -21,11 +21,13 @@
 #define TRICHTER_SENSOR_ENABLED 0
 #endif
 
-#ifdef CONFIG_ENABLE_WIFI
-#define TRICHTER_WIFI_ENABLED 1
+#ifdef CONFIG_ENABLE_LED_STATUS
+#define TRICHTER_LED_STATUS_ENABLED 1
 #else
-#define TRICHTER_WIFI_ENABLED 0
+#define TRICHTER_LED_STATUS_ENABLED 0
 #endif
+
+#define TRICHTER_LED_STATUS_GPIO CONFIG_LED_STATUS_GPIO
 
 #define TRICHTER_BLE_ENABLED 1
 
@@ -67,10 +69,6 @@ static inline bool trichter_is_display_available(void) {
 
 static inline bool trichter_is_sensor_available(void) {
   return TRICHTER_SENSOR_ENABLED;
-}
-
-static inline bool trichter_is_wifi_available(void) {
-  return TRICHTER_WIFI_ENABLED;
 }
 
 static inline bool trichter_is_ble_available(void) {

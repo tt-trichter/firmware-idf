@@ -599,10 +599,6 @@ CONFIG_PARTITION_TABLE_MD5=y
 #
 
 #
-CONFIG_WIFI_SSID="myssid"
-CONFIG_WIFI_PASSWORD="mypassword"
-CONFIG_WIFI_MAXIMUM_RETRY=5
-# end of WIFI Configuration
 
 #
 # Compiler options
