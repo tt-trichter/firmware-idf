@@ -152,6 +152,7 @@ static int trichter_result_access(uint16_t conn_handle, uint16_t attr_handle,
   }
 }
 
+static int first_ack = true;
 static int trichter_control_access(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt *ctxt,
                                    void *arg) {
@@ -165,6 +166,10 @@ static int trichter_control_access(uint16_t conn_handle, uint16_t attr_handle,
       TRICHTER_LOGI(TAG, "Received control command: %u", cmd);
 
       if (cmd == TRICHTER_CMD_ACKNOWLEDGE) {
+        if (first_ack) {
+          first_ack = false;
+          return 0;
+        }
         ble_state.waiting_for_ack = false;
         TRICHTER_LOGI(TAG, "Session acknowledged by peer");
       }
@@ -523,7 +528,8 @@ void trichter_ble_on_disconnect(void) {
   ble_state.image_subscribed = false;
   ble_state.waiting_for_ack = false;
   ble_state.conn_handle = 0;
-  // Reset cached status so the first notification after reconnect is always sent
+  // Reset cached status so the first notification after reconnect is always
+  // sent
   ble_state.current_status = (trichter_session_status_t)-1;
 
   trichter_ble_reset_image_transfer();
