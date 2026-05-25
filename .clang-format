@@ -1,0 +1,41 @@
+---
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+ColumnLimit: 100
+
+BreakBeforeBraces: Linux
+
+PointerAlignment: Right
+ReferenceAlignment: Right
+
+SpaceBeforeParens: ControlStatements
+
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: false
+
+PenaltyBreakBeforeFirstCallParameter: 1
+
+AlignAfterOpenBracket: BlockIndent
+
+SortIncludes: true
+IncludeBlocks: Regroup
+
+IndentCaseLabels: true
+
+Cpp11BracedListStyle: true
+
+BreakStringLiterals: false
+
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+
+NamespaceIndentation: None

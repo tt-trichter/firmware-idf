@@ -2,9 +2,7 @@
 
 #include "esp_camera.h"
 #include "esp_err.h"
-#include "esp_timer.h"
 #include "soc/gpio_num.h"
-#include "trichter_error.h"
 #include <stdint.h>
 
 typedef struct {

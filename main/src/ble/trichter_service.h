@@ -37,7 +37,6 @@
 #define TRICHTER_IMAGE_BURST_CHUNKS 8
 
 typedef enum {
-  TRICHTER_STATUS_IDLE = 0x00,
   TRICHTER_STATUS_WAITING = 0x01,
   TRICHTER_STATUS_RUNNING = 0x02,
   TRICHTER_STATUS_COMPLETE = 0x03,
@@ -94,6 +93,7 @@ typedef struct {
 } trichter_ble_state_t;
 
 esp_err_t trichter_ble_service_init(void);
+void trichter_ble_notify_status(void);
 void trichter_ble_set_status(trichter_session_status_t status);
 void trichter_ble_send_result(const SessionResult *result);
 bool trichter_ble_is_connected(void);
